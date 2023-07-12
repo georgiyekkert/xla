@@ -575,6 +575,7 @@ TEST_P(MemorySpaceAssignmentTest, Simple) {
       F32, {2, 3},
       /*minor_to_major=*/{1, 0},
       /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1,
       /*element_size_in_bits=*/0, kAlternateMemorySpace);
   EXPECT_THAT(p0, op::ShapeWithLayout(shape));
   EXPECT_THAT(p1, op::ShapeWithLayout(shape));
@@ -637,6 +638,7 @@ TEST_P(MemorySpaceAssignmentTest, NegateChain) {
       F32, {2, 3},
       /*minor_to_major=*/{1, 0},
       /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1,
       /*element_size_in_bits=*/0, kAlternateMemorySpace);
   EXPECT_THAT(negate0, op::ShapeWithLayout(shape_in_alternate_mem));
   EXPECT_THAT(negate1, op::ShapeWithLayout(shape_in_alternate_mem));
@@ -916,6 +918,7 @@ TEST_P(MemorySpaceAssignmentTest, FilterUpdatePreferredPrefetchTest) {
       F32, {2, 3},
       /*minor_to_major=*/{1, 0},
       /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1,
       /*element_size_in_bits=*/0, kAlternateMemorySpace);
   EXPECT_THAT(negate0, op::ShapeWithLayout(shape_in_alternate_mem));
   EXPECT_THAT(negate1, op::ShapeWithLayout(shape_in_alternate_mem));
@@ -988,6 +991,7 @@ TEST_P(MemorySpaceAssignmentTest, FilterUpdateConfigExactMatchBeforeTest) {
       F32, {2, 3},
       /*minor_to_major=*/{1, 0},
       /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1,
       /*element_size_in_bits=*/0, kAlternateMemorySpace);
   EXPECT_THAT(negate0, op::ShapeWithLayout(shape_in_alternate_mem));
   EXPECT_THAT(negate1, op::ShapeWithLayout(shape_in_alternate_mem));
@@ -1060,6 +1064,7 @@ TEST_P(MemorySpaceAssignmentTest, FilterUpdateConfigExactMatchAfterTest) {
       F32, {2, 3},
       /*minor_to_major=*/{1, 0},
       /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1,
       /*element_size_in_bits=*/0, kAlternateMemorySpace);
   EXPECT_THAT(negate0, op::ShapeWithLayout(shape_in_alternate_mem));
   EXPECT_THAT(negate1, op::ShapeWithLayout(shape_in_alternate_mem));
@@ -1131,6 +1136,7 @@ TEST_P(MemorySpaceAssignmentTest, FilterUpdateConfigExactMatchTooLateTest) {
       F32, {2, 3},
       /*minor_to_major=*/{1, 0},
       /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1,
       /*element_size_in_bits=*/0, kAlternateMemorySpace);
   EXPECT_THAT(negate0, op::ShapeWithLayout(shape_in_alternate_mem));
   EXPECT_THAT(negate1, op::ShapeWithLayout(shape_in_alternate_mem));
@@ -1196,6 +1202,7 @@ TEST_P(MemorySpaceAssignmentTest, FilterUpdateConfigPrecedenceTest) {
       F32, {2, 3},
       /*minor_to_major=*/{1, 0},
       /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1,
       /*element_size_in_bits=*/0, kAlternateMemorySpace);
   EXPECT_THAT(negate0, op::ShapeWithLayout(shape_in_alternate_mem));
   EXPECT_THAT(negate1, op::ShapeWithLayout(shape_in_alternate_mem));
@@ -1268,6 +1275,7 @@ TEST_P(MemorySpaceAssignmentTest, FilterUpdateConfigExactMatchPrecedenceTest) {
       F32, {2, 3},
       /*minor_to_major=*/{1, 0},
       /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1,
       /*element_size_in_bits=*/0, kAlternateMemorySpace);
   EXPECT_THAT(negate0, op::ShapeWithLayout(shape_in_alternate_mem));
   EXPECT_THAT(negate1, op::ShapeWithLayout(shape_in_alternate_mem));
@@ -1338,6 +1346,7 @@ TEST_P(MemorySpaceAssignmentTest, FilterUpdatePreferredPrefetchNoMatchTest) {
       F32, {2, 3},
       /*minor_to_major=*/{1, 0},
       /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1,
       /*element_size_in_bits=*/0, kAlternateMemorySpace);
   EXPECT_THAT(negate0, op::ShapeWithLayout(shape_in_alternate_mem));
   EXPECT_THAT(negate1, op::ShapeWithLayout(shape_in_alternate_mem));
@@ -1658,7 +1667,8 @@ TEST_P(MemorySpaceAssignmentTest, While) {
   }
   Shape shape_in_alternate_mem = ShapeUtil::MakeShapeWithDenseLayout(
       F32, {2, 3},
-      /*minor_to_major=*/{1, 0}, /*tiles=*/{}, /*element_size_in_bits=*/0,
+      /*minor_to_major=*/{1, 0}, /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1, /*element_size_in_bits=*/0,
       kAlternateMemorySpace);
   EXPECT_THAT(body_data_mul, op::ShapeWithLayout(shape_in_alternate_mem));
 }
@@ -1997,7 +2007,8 @@ TEST_P(MemorySpaceAssignmentTest, BitcastMultiUse) {
   AssignMemorySpace(module.get());
   Shape shape_in_alternate_mem = ShapeUtil::MakeShapeWithDenseLayout(
       F32, {2, 3},
-      /*minor_to_major=*/{1, 0}, /*tiles=*/{}, /*element_size_in_bits=*/0,
+      /*minor_to_major=*/{1, 0}, /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1, /*element_size_in_bits=*/0,
       kAlternateMemorySpace);
   EXPECT_THAT(negate0->operand(0), op::ShapeWithLayout(shape));
   EXPECT_THAT(add->operand(0), op::ShapeWithLayout(shape_in_alternate_mem));
@@ -2052,7 +2063,8 @@ TEST_P(MemorySpaceAssignmentTest, BitcastMultiUseTuple) {
   AssignMemorySpace(module.get());
   Shape shape_in_alternate_mem = ShapeUtil::MakeShapeWithDenseLayout(
       F32, {2, 3},
-      /*minor_to_major=*/{1, 0}, /*tiles=*/{}, /*element_size_in_bits=*/0,
+      /*minor_to_major=*/{1, 0}, /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1, /*element_size_in_bits=*/0,
       kAlternateMemorySpace);
   EXPECT_THAT(negate0->operand(0), op::ShapeWithLayout(shape));
   EXPECT_THAT(fusion->operand(0)->operand(0),
@@ -3961,6 +3973,7 @@ TEST_P(MemorySpaceAssignmentTest, NonEntryComputationSchedule6) {
       LayoutUtil::MakeLayout(
           /*minor_to_major=*/{1, 0}, /*dim_level_types=*/{}, /*dim_unique=*/{},
           /*dim_ordered=*/{}, /*tiles=*/{},
+          /*tail_padding_alignment_in_elements=*/1,
           /*index_primitive_type=*/PRIMITIVE_TYPE_INVALID,
           /*pointer_primitive_type=*/PRIMITIVE_TYPE_INVALID,
           /*element_size_in_bits=*/0, kAlternateMemorySpace);
@@ -3969,6 +3982,7 @@ TEST_P(MemorySpaceAssignmentTest, NonEntryComputationSchedule6) {
       LayoutUtil::MakeLayout(
           /*minor_to_major=*/{}, /*dim_level_types=*/{}, /*dim_unique=*/{},
           /*dim_ordered=*/{}, /*tiles=*/{},
+          /*tail_padding_alignment_in_elements=*/1,
           /*index_primitive_type=*/PRIMITIVE_TYPE_INVALID,
           /*pointer_primitive_type=*/PRIMITIVE_TYPE_INVALID,
           /*element_size_in_bits=*/0, kDefaultMemorySpace);
@@ -3977,6 +3991,7 @@ TEST_P(MemorySpaceAssignmentTest, NonEntryComputationSchedule6) {
       LayoutUtil::MakeLayout(
           /*minor_to_major=*/{1, 0}, /*dim_level_types=*/{}, /*dim_unique=*/{},
           /*dim_ordered=*/{}, /*tiles=*/{},
+          /*tail_padding_alignment_in_elements=*/1,
           /*index_primitive_type=*/PRIMITIVE_TYPE_INVALID,
           /*pointer_primitive_type=*/PRIMITIVE_TYPE_INVALID,
           /*element_size_in_bits=*/0, kDefaultMemorySpace);
@@ -4412,7 +4427,8 @@ TEST_P(MemorySpaceAssignmentTest, CostAnalysis) {
   // Negate instructions are in the alternate memory space (1).
   Shape shape_in_alternate_mem = ShapeUtil::MakeShapeWithDenseLayout(
       F32, {2, 3},
-      /*minor_to_major=*/{1, 0}, /*tiles=*/{}, /*element_size_in_bits=*/0,
+      /*minor_to_major=*/{1, 0}, /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1, /*element_size_in_bits=*/0,
       kAlternateMemorySpace);
   EXPECT_THAT(negate0, op::ShapeWithLayout(shape_in_alternate_mem));
   EXPECT_THAT(negate1, op::ShapeWithLayout(shape_in_alternate_mem));
@@ -4482,7 +4498,8 @@ TEST_P(MemorySpaceAssignmentTest, MemoryBoundednessBufferIntervalCompare) {
   EXPECT_THAT(p1, op::ShapeWithLayout(shape));
   Shape shape_in_default_mem = ShapeUtil::MakeShapeWithDenseLayout(
       F32, {4, 3},
-      /*minor_to_major=*/{1, 0}, /*tiles=*/{}, /*element_size_in_bits=*/0,
+      /*minor_to_major=*/{1, 0}, /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1, /*element_size_in_bits=*/0,
       kDefaultMemorySpace);
   // Expect only negates to be in alternate memory space. Not all might fit but
   // make sure at least one does.
@@ -4590,15 +4607,18 @@ TEST_P(MemorySpaceAssignmentTest, SimpleWhileTupleTest) {
   // Ensure all parameters and while are placed in default memory.
   Shape shape_in_default_mem = ShapeUtil::MakeShapeWithDenseLayout(
       F32, {4, 6},
-      /*minor_to_major=*/{1, 0}, /*tiles=*/{}, /*element_size_in_bits=*/0,
+      /*minor_to_major=*/{1, 0}, /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1, /*element_size_in_bits=*/0,
       kDefaultMemorySpace);
   Shape s32_in_default_mem = ShapeUtil::MakeShapeWithDenseLayout(
       xla::S32, {},
-      /*minor_to_major=*/{}, /*tiles=*/{}, /*element_size_in_bits=*/0,
+      /*minor_to_major=*/{}, /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1, /*element_size_in_bits=*/0,
       kDefaultMemorySpace);
   Shape f32v1_in_default_mem = ShapeUtil::MakeShapeWithDenseLayout(
       F32, {1},
-      /*minor_to_major=*/{0}, /*tiles=*/{}, /*element_size_in_bits=*/0,
+      /*minor_to_major=*/{0}, /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1, /*element_size_in_bits=*/0,
       kDefaultMemorySpace);
   Shape t_s32_f32v1_in_default_mem =
       ShapeUtil::MakeTupleShape({s32_in_default_mem, f32v1_in_default_mem});
@@ -4709,7 +4729,8 @@ TEST_P(MemorySpaceAssignmentTest,
   Shape shape = ShapeUtil::MakeShape(F32, {2, 3});
   Shape shape_in_alternate_mem = ShapeUtil::MakeShapeWithDenseLayout(
       F32, {2, 3},
-      /*minor_to_major=*/{1, 0}, /*tiles=*/{}, /*element_size_in_bits=*/0,
+      /*minor_to_major=*/{1, 0}, /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1, /*element_size_in_bits=*/0,
       kAlternateMemorySpace);
   // p0 is in the default memory space.
   HloInstruction* p0 =
@@ -8227,7 +8248,8 @@ TEST_P(MemorySpaceAssignmentTest, CrossProgramPrefetchPinnedTest) {
   auto lhs_shape = ShapeUtil::MakeShape(F32, {kBatch, kFeature});
   auto rhs_shape = ShapeUtil::MakeShapeWithDenseLayout(
       F32, {kFeature, kOutput},
-      /*minor_to_major=*/{1, 0}, /*tiles=*/{}, /*element_size_in_bits=*/0,
+      /*minor_to_major=*/{1, 0}, /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1, /*element_size_in_bits=*/0,
       kAlternateMemorySpace);
   auto result_shape = ShapeUtil::MakeShape(F32, {kBatch, kOutput});
   HloInstruction* lhs = builder.AddInstruction(
@@ -8269,7 +8291,8 @@ TEST_P(MemorySpaceAssignmentTest, CrossProgramPrefetchPinnedTupleTest) {
   auto lhs_shape = ShapeUtil::MakeShape(F32, {kBatch, kFeature});
   auto rhs_shape = ShapeUtil::MakeShapeWithDenseLayout(
       F32, {kFeature, kOutput},
-      /*minor_to_major=*/{1, 0}, /*tiles=*/{}, /*element_size_in_bits=*/0,
+      /*minor_to_major=*/{1, 0}, /*tiles=*/{},
+      /*tail_padding_alignment_in_elements=*/1, /*element_size_in_bits=*/0,
       kAlternateMemorySpace);
   auto result_shape = ShapeUtil::MakeShape(F32, {kBatch, kOutput});
   auto tuple_shape = ShapeUtil::MakeTupleShape({lhs_shape, rhs_shape});
