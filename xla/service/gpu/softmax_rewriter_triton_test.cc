@@ -911,7 +911,7 @@ max_computation {
 }
 ENTRY main {
   param_0 = f16[127,125]{1,0} parameter(0)
-  multiply =  f16[127,125]{1,0} multiply(param_0, param_0)
+  multiply = f16[127,125]{1,0} multiply(param_0, param_0)
   constant_neg_inf = f16[] constant(-inf)
   reduce = f16[127]{0} reduce(multiply, constant_neg_inf), dimensions={1}, to_apply=max_computation
   broadcast = f16[127,125]{1,0} broadcast(reduce), dimensions={0}
@@ -941,7 +941,7 @@ ENTRY main {
   param_0 = f16[127,125]{1,0} parameter(0)
   constant_neg_inf = f16[] constant(-inf)
   reduce = f16[127]{0} reduce(param_0, constant_neg_inf), dimensions={1}, to_apply=max_computation
-  multiply =  f16[127]{0} multiply(reduce, reduce)
+  multiply = f16[127]{0} multiply(reduce, reduce)
   broadcast = f16[127,125]{1,0} broadcast(multiply), dimensions={0}
   ROOT subtract = f16[127,125]{1,0} subtract(param_0, broadcast)
 }
@@ -991,8 +991,9 @@ ENTRY main {
               GmockMatch(m::Fusion(m::Parameter())));
 }
 
-TEST_F(SoftmaxRewriterTritonTest,
-       CanFuseBinaryElementwiseConsumerWhereBothOperandsAreTheSameIntoDiamond) {
+TEST_F(
+    SoftmaxRewriterTritonTest,
+    CanFuseBinaryElementwiseConsumerWhereBothOperandsAreTheSameIntoDiamond) {  // NOLINT(whitespace/line_length)
   const std::string hlo_string = R"(
 HloModule fusible_diamond
 max_computation {
@@ -1082,6 +1083,245 @@ ENTRY main {
   VLOG(2) << module->ToString();
   EXPECT_THAT(module->entry_computation()->root_instruction(),
               GmockMatch(m::Fusion(m::Parameter())));
+}
+
+TEST_F(
+    SoftmaxRewriterTritonTest,
+    DoesNotFuseIntermediateBinaryElementwiseWithBothSplatOperandsIntoDiamondF16) {  // NOLINT(whitespace/line_length)
+  const std::string hlo_string = R"(
+HloModule nonfusible_splat
+max_computation {
+  arg_0 = f16[] parameter(0)
+  arg_1 = f16[] parameter(1)
+  ROOT maximum = f16[] maximum(arg_0, arg_1)
+}
+ENTRY main {
+  constant_0 = f16[] constant(0.333333343)
+  splat_0 = f16[127,125]{1,0} broadcast(constant_0), dimensions={}
+  constant_1 = f16[] constant(0.66666)
+  splat_1 = f16[127,125]{1,0} broadcast(constant_1), dimensions={}
+  param_0 = f16[127,125]{1,0} parameter(0)
+  multiply_splats = f16[127,125]{1,0} multiply(splat_0, splat_1)
+  multiply_splat_param = f16[127,125]{1,0} multiply(multiply_splats, param_0)
+  constant_neg_inf = f16[] constant(-inf)
+  reduce = f16[127]{0} reduce(multiply_splat_param, constant_neg_inf), dimensions={1}, to_apply=max_computation
+  broadcast = f16[127,125]{1,0} broadcast(reduce), dimensions={0}
+  ROOT subtract = f16[127,125]{1,0} subtract(param_0, broadcast)
+}
+)";
+  auto module = ParseAndReturnVerifiedModule(hlo_string).value();
+  SoftmaxRewriterTriton fusion_rewriter(gpu_version_);
+  EXPECT_FALSE(fusion_rewriter.Run(module.get()).value());
+}
+
+TEST_F(SoftmaxRewriterTritonTest,
+       DoesNotFuseBinaryElementwiseWithBothUnarySplatOperandsIntoDiamondF16) {
+  const std::string hlo_string = R"(
+HloModule nonfusible_splat_diamond
+max_computation {
+  arg_0 = f16[] parameter(0)
+  arg_1 = f16[] parameter(1)
+  ROOT maximum = f16[] maximum(arg_0, arg_1)
+}
+ENTRY main {
+  constant_0 = f16[] constant(0.333333343)
+  splat_0 = f16[127,125]{1,0} broadcast(constant_0), dimensions={}
+  abs.0 = f16[127,125]{1,0} abs(splat_0)
+  constant_1 = f16[] constant(0.66666)
+  splat_1 = f16[127,125]{1,0} broadcast(constant_1), dimensions={}
+  abs.1 = f16[127,125]{1,0} abs(splat_1)
+  param_0 = f16[127,125]{1,0} parameter(0)
+  multiply.0 = f16[127,125]{1,0} multiply(abs.0, abs.1)
+  multiply.1 = f16[127,125]{1,0} multiply(multiply.0, param_0)
+  constant_neg_inf = f16[] constant(-inf)
+  reduce = f16[127]{0} reduce(multiply.1, constant_neg_inf), dimensions={1}, to_apply=max_computation
+  broadcast.2 = f16[127,125]{1,0} broadcast(reduce), dimensions={0}
+  ROOT subtract = f16[127,125]{1,0} subtract(param_0, broadcast.2)
+}
+)";
+  auto module = ParseAndReturnVerifiedModule(hlo_string).value();
+  SoftmaxRewriterTriton fusion_rewriter(gpu_version_);
+  EXPECT_FALSE(fusion_rewriter.Run(module.get()).value());
+}
+
+TEST_F(
+    SoftmaxRewriterTritonTest,
+    DoesNotFuseIntermediateBinaryElementwiseWithSameSplatOperandsIntoDiamondF16) {  // NOLINT(whitespace/line_length)
+  const std::string hlo_string = R"(
+HloModule nonfusible_splat_diamond
+max_computation {
+  arg_0 = f16[] parameter(0)
+  arg_1 = f16[] parameter(1)
+  ROOT maximum = f16[] maximum(arg_0, arg_1)
+}
+ENTRY main {
+  constant_0 = f16[] constant(0.333333343)
+  splat = f16[127,125]{1,0} broadcast(constant_0), dimensions={}
+  param_0 = f16[127,125]{1,0} parameter(0)
+  multiply = f16[127,125]{1,0} multiply(splat, splat)
+  constant_neg_inf = f16[] constant(-inf)
+  reduce = f16[127]{0} reduce(multiply, constant_neg_inf), dimensions={1}, to_apply=max_computation
+  broadcast = f16[127,125]{1,0} broadcast(reduce), dimensions={0}
+  ROOT subtract = f16[127,125]{1,0} subtract(param_0, broadcast)
+}
+)";
+  auto module = ParseAndReturnVerifiedModule(hlo_string).value();
+  SoftmaxRewriterTriton fusion_rewriter(gpu_version_);
+  EXPECT_FALSE(fusion_rewriter.Run(module.get()).value());
+}
+
+TEST_F(SoftmaxRewriterTritonTest, CanFuseRMSNormDiamondF32) {
+  const std::string hlo_string = R"(
+HloModule rms_norm
+add_computation {
+  arg_0 = f32[] parameter(0)
+  arg_1 = f32[] parameter(1)
+  ROOT add.1 = f32[] add(arg_0, arg_1)
+}
+ENTRY main.30 {
+  param_0 = f32[10,10,10,128]{3,2,1,0} parameter(0)
+  multiply_param = f32[10,10,10,128]{3,2,1,0} multiply(param_0, param_0)
+  constant_0 = f32[] constant(0)
+  reduce = f32[10,10,10]{2,1,0} reduce(multiply_param, constant_0), dimensions={3}, to_apply=add_computation
+  constant_1 = f32[] constant(0.333333343)
+  splat = f32[10,10,10]{2,1,0} broadcast(constant_1), dimensions={}
+  multiply_splat = f32[10,10,10]{2,1,0} multiply(reduce, splat)
+  epsilon = f32[] constant(1e-06)
+  splat_epsilon = f32[10,10,10]{2,1,0} broadcast(epsilon), dimensions={}
+  add = f32[10,10,10]{2,1,0} add(multiply_splat, splat_epsilon)
+  rsqrt = f32[10,10,10]{2,1,0} rsqrt(add)
+  broadcast = f32[10,10,10,128]{3,2,1,0} broadcast(rsqrt), dimensions={0,1,2}
+  ROOT multiply = f32[10,10,10,128]{3,2,1,0} multiply(param_0, broadcast)
+}
+)";
+  auto module = ParseAndReturnVerifiedModule(hlo_string).value();
+  SoftmaxRewriterTriton fusion_rewriter(gpu_version_);
+  EXPECT_TRUE(fusion_rewriter.Run(module.get()).value());
+  EXPECT_TRUE(verifier().Run(module.get()).status().ok());
+  VLOG(2) << module->ToString();
+  EXPECT_THAT(module->entry_computation()->root_instruction(),
+              GmockMatch(m::Fusion(m::Parameter())));
+}
+
+TEST_F(
+    SoftmaxRewriterTritonTest,
+    CanFuseAndEmitBinaryElementwiseWhereTheFirstOperandIsASplatConstantBetweenDiamonds) {  // NOLINT(whitespace/line_length)
+  const std::string hlo_string = R"(
+HloModule fusible_diamonds
+add_computation {
+  arg_0.1 = f32[] parameter(0)
+  arg_1.1 = f32[] parameter(1)
+  ROOT add = f32[] add(arg_0.1, arg_1.1)
+}
+ENTRY main {
+  param_0 = f32[127,125]{1,0} parameter(0)
+  constant_neg_inf = f32[] constant(-inf)
+  reduce = f32[127]{0} reduce(param_0, constant_neg_inf), dimensions={1}, to_apply=add_computation
+  broadcast = f32[127,125]{1,0} broadcast(reduce), dimensions={0}
+  subtract = f32[127,125]{1,0} subtract(param_0, broadcast)
+  constant = f32[] constant(0.333333343)
+  broadcast_splat = f32[127,125]{1,0} broadcast(constant), dimensions={}
+  multiply = f32[127,125]{1,0} multiply(broadcast_splat, subtract)
+  constant_zero = f32[] constant(0)
+  second_reduce = f32[127]{0} reduce(multiply, constant_zero), dimensions={1}, to_apply=add_computation
+  second_broadcast = f32[127,125]{1,0} broadcast(second_reduce), dimensions={0}
+  ROOT divide = f32[127,125]{1,0} divide(multiply, second_broadcast)
+}
+)";
+  auto module = ParseAndReturnVerifiedModule(hlo_string).value();
+  SoftmaxRewriterTriton fusion_rewriter(gpu_version_);
+  EXPECT_TRUE(fusion_rewriter.Run(module.get()).value());
+  EXPECT_TRUE(verifier().Run(module.get()).status().ok());
+  VLOG(2) << module->ToString();
+  EXPECT_THAT(module->entry_computation()->root_instruction(),
+              GmockMatch(m::Fusion(m::Parameter())));
+}
+
+TEST_F(
+    SoftmaxRewriterTritonTest,
+    CanFuseBinaryElementwiseWhereTheFirstOperandIsASplatConstantWithinDiamond) {
+  const std::string hlo_string = R"(
+HloModule fusible_diamond
+max_computation {
+  arg_0 = f16[] parameter(0)
+  arg_1 = f16[] parameter(1)
+  ROOT maximum = f16[] maximum(arg_0, arg_1)
+}
+ENTRY main {
+  param_0 = f16[127,125]{1,0} parameter(0)
+  constant_neg_inf = f16[] constant(-inf)
+  reduce = f16[127]{0} reduce(param_0, constant_neg_inf), dimensions={1}, to_apply=max_computation
+  constant = f16[] constant(0.333333343)
+  broadcast_splat = f16[127]{0} broadcast(constant), dimensions={}
+  multiply = f16[127]{0} multiply(broadcast_splat, reduce)
+  broadcast = f16[127,125]{1,0} broadcast(multiply), dimensions={0}
+  ROOT subtract = f16[127,125]{1,0} subtract(param_0, broadcast)
+}
+)";
+  auto module = ParseAndReturnVerifiedModule(hlo_string).value();
+  SoftmaxRewriterTriton fusion_rewriter(gpu_version_);
+  EXPECT_TRUE(fusion_rewriter.Run(module.get()).value());
+  EXPECT_TRUE(verifier().Run(module.get()).status().ok());
+  VLOG(2) << module->ToString();
+  EXPECT_THAT(module->entry_computation()->root_instruction(),
+              GmockMatch(m::Fusion(m::Parameter())));
+}
+
+TEST_F(SoftmaxRewriterTritonTest,
+       CanFuseBinaryElementwiseConsumerWhereTheFirstOperandIsASplatConstant) {
+  const std::string hlo_string = R"(
+HloModule fusible_diamond
+add_computation {
+  arg_0.1 = f32[] parameter(0)
+  arg_1.1 = f32[] parameter(1)
+  ROOT add = f32[] add(arg_0.1, arg_1.1)
+}
+ENTRY main {
+  param_0 = f16[127,125]{1,0} parameter(0)
+  constant_neg_inf = f16[] constant(-inf)
+  reduce = f16[127]{0} reduce(param_0, constant_neg_inf), dimensions={1}, to_apply=add_computation
+  broadcast = f16[127,125]{1,0} broadcast(reduce), dimensions={0}
+  subtract = f16[127,125]{1,0} subtract(param_0, broadcast)
+  constant = f16[] constant(0.333333343)
+  broadcast_splat = f16[127,125]{1,0} broadcast(constant), dimensions={}
+  ROOT multiply = f16[127,125]{1,0} multiply(broadcast_splat, subtract)
+}
+)";
+  auto module = ParseAndReturnVerifiedModule(hlo_string).value();
+  SoftmaxRewriterTriton fusion_rewriter(gpu_version_);
+  EXPECT_TRUE(fusion_rewriter.Run(module.get()).value());
+  EXPECT_TRUE(verifier().Run(module.get()).status().ok());
+  VLOG(2) << module->ToString();
+  EXPECT_THAT(module->entry_computation()->root_instruction(),
+              GmockMatch(m::Fusion(m::Parameter())));
+}
+
+TEST_F(
+    SoftmaxRewriterTritonTest,
+    DoesNotFuseBinaryElementwiseOperationWhereTheOperandIsASharedSplatProducer) {  // NOLINT(whitespace/line_length)
+  const std::string hlo_string = R"(
+HloModule nonfusible_diamond
+add_computation {
+  arg_0.1 = f32[] parameter(0)
+  arg_1.1 = f32[] parameter(1)
+  ROOT add = f32[] add(arg_0.1, arg_1.1)
+}
+ENTRY main {
+  param_0 = f32[127,125]{1,0} parameter(0)
+  constant.2 = f32[] constant(0.333333343)
+  broadcast_splat = f32[127,125]{1,0} broadcast(constant.2), dimensions={}
+  param_1 = f32[127,125]{1,0} parameter(1)
+  multiply_splat = f32[127,125]{1,0} multiply(broadcast_splat, param_1)
+  multiply = f32[127,125]{1,0} multiply(param_0, broadcast_splat)
+  constant_neg_inf = f32[] constant(-inf)
+  reduce = f32[127]{0} reduce(multiply, constant_neg_inf), dimensions={1}, to_apply=add_computation
+  broadcast = f32[127,125]{1,0} broadcast(reduce), dimensions={0}
+  ROOT subtract = f32[127,125]{1,0} subtract(param_0, broadcast)
+}
+)";
+  auto module = ParseAndReturnVerifiedModule(hlo_string).value();
+  SoftmaxRewriterTriton fusion_rewriter(gpu_version_);
+  EXPECT_FALSE(fusion_rewriter.Run(module.get()).value());
 }
 
 }  // anonymous namespace

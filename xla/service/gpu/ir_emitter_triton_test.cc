@@ -2365,7 +2365,7 @@ max_computation {
 }
 ENTRY main {
   param_0 = f16[127,125]{1,0} parameter(0)
-  multiply =  f16[127,125]{1,0} multiply(param_0, param_0)
+  multiply = f16[127,125]{1,0} multiply(param_0, param_0)
   constant_neg_inf = f16[] constant(-inf)
   reduce = f16[127]{0} reduce(multiply, constant_neg_inf), dimensions={1}, to_apply=max_computation
   broadcast = f16[127,125]{1,0} broadcast(reduce), dimensions={0}
@@ -2398,7 +2398,7 @@ ENTRY main {
   param_0 = f16[127,125]{1,0} parameter(0)
   constant_neg_inf = f16[] constant(-inf)
   reduce = f16[127]{0} reduce(param_0, constant_neg_inf), dimensions={1}, to_apply=max_computation
-  multiply =  f16[127]{0} multiply(reduce, reduce)
+  multiply = f16[127]{0} multiply(reduce, reduce)
   broadcast = f16[127,125]{1,0} broadcast(multiply), dimensions={0}
   ROOT subtract = f16[127,125]{1,0} subtract(param_0, broadcast)
 }
@@ -2524,6 +2524,141 @@ ENTRY main {
   MatchOptimizedHlo(hlo_text, R"(
 ; CHECK:    ENTRY
 ; CHECK:      %[[P0:.*]] = f32[127,125]{1,0} parameter(0)
+; CHECK:      ROOT
+; CHECK-SAME: fusion(%[[P0]])
+; CHECK-SAME:   kind=kCustom
+; CHECK-SAME:   __triton_softmax
+)");
+  EXPECT_TRUE(RunAndCompare(hlo_text, ErrorSpec(1e-6, 1e-6)));
+}
+
+TEST_F(TritonSoftmaxTest, CanFuseAndEmitRMSNormDiamondF32) {
+  const std::string hlo_text = R"(
+HloModule rms_norm
+add_computation {
+  arg_0 = f32[] parameter(0)
+  arg_1 = f32[] parameter(1)
+  ROOT add.1 = f32[] add(arg_0, arg_1)
+}
+ENTRY main.30 {
+  param_0 = f32[10,10,10,128]{3,2,1,0} parameter(0)
+  multiply_param = f32[10,10,10,128]{3,2,1,0} multiply(param_0, param_0)
+  constant_0 = f32[] constant(0)
+  reduce = f32[10,10,10]{2,1,0} reduce(multiply_param, constant_0), dimensions={3}, to_apply=add_computation
+  constant_1 = f32[] constant(0.333333343)
+  splat = f32[10,10,10]{2,1,0} broadcast(constant_1), dimensions={}
+  multiply_splat = f32[10,10,10]{2,1,0} multiply(reduce, splat)
+  epsilon = f32[] constant(1e-06)
+  splat_epsilon = f32[10,10,10]{2,1,0} broadcast(epsilon), dimensions={}
+  add = f32[10,10,10]{2,1,0} add(multiply_splat, splat_epsilon)
+  rsqrt = f32[10,10,10]{2,1,0} rsqrt(add)
+  broadcast = f32[10,10,10,128]{3,2,1,0} broadcast(rsqrt), dimensions={0,1,2}
+  ROOT multiply = f32[10,10,10,128]{3,2,1,0} multiply(param_0, broadcast)
+}
+)";
+  MatchOptimizedHlo(hlo_text, R"(
+; CHECK:    ENTRY
+; CHECK:      %[[P0:.*]] = f32[10,10,10,128]{3,2,1,0} parameter(0)
+; CHECK:      ROOT
+; CHECK-SAME: fusion(%[[P0]])
+; CHECK-SAME:   kind=kCustom
+; CHECK-SAME:   __triton_softmax
+)");
+  EXPECT_TRUE(RunAndCompare(hlo_text, ErrorSpec(1e-6, 1e-6)));
+}
+
+TEST_F(
+    TritonSoftmaxTest,
+    CanFuseAndEmitBinaryElementwiseWhereTheFirstOperandIsASplatConstantBetweenDiamonds) {  // NOLINT(whitespace/line_length)
+  const std::string hlo_text = R"(
+HloModule fusible_diamonds
+add_computation {
+  arg_0.1 = f32[] parameter(0)
+  arg_1.1 = f32[] parameter(1)
+  ROOT add = f32[] add(arg_0.1, arg_1.1)
+}
+ENTRY main {
+  param_0 = f32[127,125]{1,0} parameter(0)
+  constant_neg_inf = f32[] constant(-inf)
+  reduce = f32[127]{0} reduce(param_0, constant_neg_inf), dimensions={1}, to_apply=add_computation
+  broadcast = f32[127,125]{1,0} broadcast(reduce), dimensions={0}
+  subtract = f32[127,125]{1,0} subtract(param_0, broadcast)
+  constant = f32[] constant(0.333333343)
+  broadcast_splat = f32[127,125]{1,0} broadcast(constant), dimensions={}
+  multiply = f32[127,125]{1,0} multiply(broadcast_splat, subtract)
+  constant_zero = f32[] constant(0)
+  second_reduce = f32[127]{0} reduce(multiply, constant_zero), dimensions={1}, to_apply=add_computation
+  second_broadcast = f32[127,125]{1,0} broadcast(second_reduce), dimensions={0}
+  ROOT divide = f32[127,125]{1,0} divide(multiply, second_broadcast)
+}
+)";
+  MatchOptimizedHlo(hlo_text, R"(
+; CHECK:    ENTRY
+; CHECK:      %[[P0:.*]] = f32[127,125]{1,0} parameter(0)
+; CHECK:      ROOT
+; CHECK-SAME: fusion(%[[P0]])
+; CHECK-SAME:   kind=kCustom
+; CHECK-SAME:   __triton_softmax
+)");
+  EXPECT_TRUE(RunAndCompare(hlo_text, ErrorSpec(1e-6, 1e-6)));
+}
+
+TEST_F(
+    TritonSoftmaxTest,
+    CanFuseAndEmitBinaryElementwiseWhereTheFirstOperandIsASplatConstantWithinDiamond) {  // NOLINT(whitespace/line_length)
+  const std::string hlo_text = R"(
+HloModule fusible_diamond
+max_computation {
+  arg_0 = f16[] parameter(0)
+  arg_1 = f16[] parameter(1)
+  ROOT maximum = f16[] maximum(arg_0, arg_1)
+}
+ENTRY main {
+  param_0 = f16[127,125]{1,0} parameter(0)
+  constant_neg_inf = f16[] constant(-inf)
+  reduce = f16[127]{0} reduce(param_0, constant_neg_inf), dimensions={1}, to_apply=max_computation
+  constant = f16[] constant(0.333333343)
+  broadcast_splat = f16[127]{0} broadcast(constant), dimensions={}
+  multiply = f16[127]{0} multiply(broadcast_splat, reduce)
+  broadcast = f16[127,125]{1,0} broadcast(multiply), dimensions={0}
+  ROOT subtract = f16[127,125]{1,0} subtract(param_0, broadcast)
+}
+)";
+  MatchOptimizedHlo(hlo_text, R"(
+; CHECK:    ENTRY
+; CHECK:      %[[P0:.*]] = f16[127,125]{1,0} parameter(0)
+; CHECK:      ROOT
+; CHECK-SAME: fusion(%[[P0]])
+; CHECK-SAME:   kind=kCustom
+; CHECK-SAME:   __triton_softmax
+)");
+  EXPECT_TRUE(RunAndCompare(hlo_text, ErrorSpec(1e-6, 1e-6)));
+}
+
+TEST_F(
+    TritonSoftmaxTest,
+    CanFuseAndEmitBinaryElementwiseConsumerWhereTheFirstOperandIsASplatConstant) {  // NOLINT(whitespace/line_length)
+  const std::string hlo_text = R"(
+HloModule fusible_diamond
+add_computation {
+  arg_0.1 = f32[] parameter(0)
+  arg_1.1 = f32[] parameter(1)
+  ROOT add = f32[] add(arg_0.1, arg_1.1)
+}
+ENTRY main {
+  param_0 = f16[127,125]{1,0} parameter(0)
+  constant_neg_inf = f16[] constant(-inf)
+  reduce = f16[127]{0} reduce(param_0, constant_neg_inf), dimensions={1}, to_apply=add_computation
+  broadcast = f16[127,125]{1,0} broadcast(reduce), dimensions={0}
+  subtract = f16[127,125]{1,0} subtract(param_0, broadcast)
+  constant = f16[] constant(0.333333343)
+  broadcast_splat = f16[127,125]{1,0} broadcast(constant), dimensions={}
+  ROOT multiply = f16[127,125]{1,0} multiply(broadcast_splat, subtract)
+}
+)";
+  MatchOptimizedHlo(hlo_text, R"(
+; CHECK:    ENTRY
+; CHECK:      %[[P0:.*]] = f16[127,125]{1,0} parameter(0)
 ; CHECK:      ROOT
 ; CHECK-SAME: fusion(%[[P0]])
 ; CHECK-SAME:   kind=kCustom
