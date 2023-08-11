@@ -323,24 +323,29 @@ bool IsUniversallyLoopFusible(const HloInstruction& instr,
   // compute the address of the GTE at the top of the kernel.  Often we know the
   // address of the GTE result statically, so we can do this without chasing any
   // pointers.
-  return ((instr.IsElementwise() && instr.operand_count() > 0 &&
-           instr.opcode() != HloOpcode::kCopy) ||
-          (instr.opcode() == HloOpcode::kCopy &&
-           !GetDescriptionForTiledTransposeEmitter(instr, hero).has_value()) ||
-          instr.opcode() == HloOpcode::kBitcast ||
-          instr.opcode() == HloOpcode::kBroadcast ||
-          instr.opcode() == HloOpcode::kConcatenate ||
-          instr.opcode() == HloOpcode::kDynamicSlice ||
-          instr.opcode() == HloOpcode::kDynamicUpdateSlice ||
-          (instr.opcode() == HloOpcode::kFusion &&
-           instr.fusion_kind() == HloInstruction::FusionKind::kLoop) ||
-          instr.opcode() == HloOpcode::kGather ||
-          instr.opcode() == HloOpcode::kPad ||
-          instr.opcode() == HloOpcode::kReduceWindow ||
-          instr.opcode() == HloOpcode::kReshape ||
-          instr.opcode() == HloOpcode::kReverse ||
-          instr.opcode() == HloOpcode::kSlice ||
-          instr.opcode() == HloOpcode::kTranspose);
+  switch (instr.opcode()) {
+    case HloOpcode::kCopy:
+      return !GetDescriptionForTiledTransposeEmitter(instr, hero).has_value();
+
+    case HloOpcode::kFusion:
+      return instr.fusion_kind() == HloInstruction::FusionKind::kLoop;
+
+    case HloOpcode::kBitcast:
+    case HloOpcode::kBroadcast:
+    case HloOpcode::kConcatenate:
+    case HloOpcode::kDynamicSlice:
+    case HloOpcode::kDynamicUpdateSlice:
+    case HloOpcode::kGather:
+    case HloOpcode::kPad:
+    case HloOpcode::kReduceWindow:
+    case HloOpcode::kReshape:
+    case HloOpcode::kReverse:
+    case HloOpcode::kSlice:
+    case HloOpcode::kTranspose:
+      return true;
+    default:
+      return instr.IsElementwise() && instr.operand_count() > 0;
+  }
 }
 
 bool IsLoopFusibleAsConsumer(const HloInstruction& instr,
