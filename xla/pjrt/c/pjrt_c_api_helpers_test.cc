@@ -14,18 +14,29 @@ limitations under the License.
 ==============================================================================*/
 #include "xla/pjrt/c/pjrt_c_api_helpers.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "absl/container/flat_hash_map.h"
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
+#include "absl/synchronization/mutex.h"
+#include "absl/time/clock.h"
 #include "absl/time/time.h"
 #include "xla/layout.h"
 #include "xla/pjrt/c/pjrt_c_api.h"
 #include "xla/pjrt/c/pjrt_c_api_wrapper_impl.h"
+#include "xla/pjrt/pjrt_client.h"
+#include "xla/pjrt/pjrt_common.h"
+#include "xla/status.h"
+#include "xla/statusor.h"
 #include "tsl/lib/core/status_test_util.h"
 #include "tsl/platform/status.h"
+#include "tsl/platform/statusor.h"
 
 namespace pjrt {
 namespace {
@@ -56,7 +67,8 @@ TEST(PjRtCApiHelperTest, ValidOptionNameAndPjRtValueTypeIndex) {
       {"int64", PJRT_NamedValue_Type::PJRT_NamedValue_kInt64},
   });
   absl::flat_hash_map<std::string, xla::PjRtValueType> valid_map = {
-      {"string", "v1"}, {"int64", static_cast<int64_t>(1)}};
+      {"string", static_cast<std::string>("v1")},
+      {"int64", static_cast<int64_t>(1)}};
 
   TF_EXPECT_OK(ValidateCreateOptions(valid_map, expected));
 }
