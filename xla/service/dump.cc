@@ -632,9 +632,12 @@ void DumpToFileInDirOrStdout(const HloModule& module, string_view file_prefix,
                               opts);
 }
 
-void DumpProtobufToFile(const tsl::protobuf::Message& proto,
-                        const DebugOptions& debug_options,
-                        absl::string_view filename) {
+void DumpProtobufToFile(
+    const tsl::protobuf::Message& proto, const DebugOptions& debug_options,
+    absl::string_view filename,
+    absl::AnyInvocable<Status(tsl::Env*, const std::string&,
+                              const tsl::protobuf::Message&)>
+        serialization_function) {
   CanonicalDebugOptions opts(debug_options);
   tsl::Env* env = tsl::Env::Default();
   const std::string& dir = opts.dump_to;
@@ -650,7 +653,11 @@ void DumpProtobufToFile(const tsl::protobuf::Message& proto,
     const std::string path = tsl::io::JoinPath(dir, filename);
     Status status;
     if (opts.dump_as_text) {
-      status = tsl::WriteTextProto(env, absl::StrCat(path, ".txt"), proto);
+      if (serialization_function) {
+        status = serialization_function(env, absl::StrCat(path, ".txt"), proto);
+      } else {
+        status = tsl::WriteTextProto(env, absl::StrCat(path, ".txt"), proto);
+      }
     } else {
       status = tsl::WriteBinaryProto(env, absl::StrCat(path, ".pb"), proto);
     }
@@ -661,12 +668,15 @@ void DumpProtobufToFile(const tsl::protobuf::Message& proto,
   }
 }
 
-void DumpPerModuleProtobufToFile(const HloModule& module,
-                                 const tsl::protobuf::Message& proto,
-                                 const DebugOptions& debug_options,
-                                 absl::string_view name) {
+void DumpPerModuleProtobufToFile(
+    const HloModule& module, const tsl::protobuf::Message& proto,
+    const DebugOptions& debug_options, absl::string_view name,
+    absl::AnyInvocable<Status(tsl::Env*, const std::string&,
+                              const tsl::protobuf::Message&)>
+        serialization_function) {
   const std::string filename = FilenameFor(module, TimestampFor(module), name);
-  DumpProtobufToFile(proto, debug_options, filename);
+  DumpProtobufToFile(proto, debug_options, filename,
+                     std::move(serialization_function));
 }
 
 void DumpHloModuleIfEnabled(const HloModule& module, string_view name) {
