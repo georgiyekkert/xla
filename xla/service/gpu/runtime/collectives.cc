@@ -15,11 +15,17 @@ limitations under the License.
 
 #include "xla/service/gpu/runtime/collectives.h"
 
+#include <sys/types.h>
+
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include "absl/base/call_once.h"
+#include "absl/log/log.h"
 #include "xla/runtime/custom_call.h"
 #include "xla/runtime/executable.h"
 #include "xla/service/computation_placer.h"
@@ -35,7 +41,13 @@ limitations under the License.
 #include "xla/service/gpu/runtime/support.h"
 #include "xla/service/gpu/thunk.h"
 #include "xla/service/service_executable_run_options.h"
+#include "xla/stream_executor/kernel.h"
 #include "xla/stream_executor/stream.h"
+
+#if XLA_ENABLE_XCCL
+#include "xla/stream_executor/gpu/asm_compiler.h"
+#include "xla/stream_executor/gpu/gpu_asm_opts.h"
+#endif  // XLA_ENABLE_XCCL
 
 namespace xla {
 namespace gpu {
@@ -164,6 +176,72 @@ absl::Status AsyncDoneImpl(const ServiceExecutableRunOptions* run_options,
 #endif  // XLA_ENABLE_XCCL
 }
 
+#if XLA_ENABLE_XCCL
+// GPU kernels for sleeping a number of nano seconds to simulate a NCCL call:
+//
+// Generated from the following CUDA code.
+//
+// __global__ void mock_nccl_call(unsigned sleep_ns)
+// {
+//   __nanosleep(sleep_ns);
+// }
+constexpr const char* kMockNcclPtx = R"(
+.version 8.1
+.target sm_70
+.address_size 64
+
+        // .globl       _Z14mock_nccl_callj
+
+.visible .entry _Z14mock_nccl_callj(
+        .param .u32 _Z14mock_nccl_callj_param_0
+)
+{
+        .reg .b32       %r<2>;
+
+
+        ld.param.u32    %r1, [_Z14mock_nccl_callj_param_0];
+        // begin inline asm
+        nanosleep.u32 %r1;
+        // end inline asm
+        ret;
+
+}
+)";
+
+// The PTX in kMockNcclPtx has to be launched with specified types
+// in the specified order.
+using MockNcclKernelT = se::TypedKernel<uint64_t>;
+
+absl::Status NcclMockImplCommon(se::Stream* stream) {
+  se::StreamExecutor* executor = stream->parent();
+
+  absl::Span<const uint8_t> compiled_ptx = {};
+  StatusOr<absl::Span<const uint8_t>> compiled_ptx_or =
+      se::CompileGpuAsmOrGetCached(executor->device_ordinal(), kMockNcclPtx,
+                                   se::GpuAsmOpts{});
+  if (compiled_ptx_or.ok()) {
+    compiled_ptx = compiled_ptx_or.value();
+  } else {
+    static absl::once_flag ptxas_not_found_logged;
+    absl::call_once(ptxas_not_found_logged, [&]() {
+      LOG(WARNING) << compiled_ptx_or.status()
+                   << "\nRelying on driver to perform ptx compilation. "
+                   << "\nModify $PATH to customize ptxas location."
+                   << "\nThis message will be only logged once.";
+    });
+  }
+
+  TF_ASSIGN_OR_RETURN(std::shared_ptr<MockNcclKernelT> mock_nccl_kernel,
+                      (executor->CreateTypedKernel<uint64_t>(
+                          "_Z14mock_nccl_callj", kMockNcclPtx, compiled_ptx)));
+
+  TF_RETURN_IF_ERROR(stream->ThenLaunch(se::ThreadDim(512, 1, 1),
+                                        se::BlockDim(1, 1, 1),
+                                        *mock_nccl_kernel, (uint64_t)1000));
+  return absl::OkStatus();
+}
+#endif  // XLA_ENABLE_XCCL
+
 //===----------------------------------------------------------------------===//
 // CollectivePermute.
 //===----------------------------------------------------------------------===//
@@ -243,15 +321,20 @@ absl::Status CollectivePermuteImpl(
     absl::Span<const int64_t> target_peers) {
 #if XLA_ENABLE_XCCL
   VLOG(3) << "Running CollectivePermute " << (is_async ? "(Async)" : "(Sync)");
-  return RunSyncOrAsync(run_options, collectives, async_collectives, uid,
-                        is_async, [&](se::Stream* stream) {
-                          return P2PImplCommon(
-                              run_options, debug_options, stream, args,
-                              group_mode, op_id, replica_group_offsets,
-                              replica_group_values, source_peers, target_peers,
-                              RunCollectivePermute, GetDeviceBufferPairs,
-                              GetStreamId(is_async));
-                        });
+  return RunSyncOrAsync(
+      run_options, collectives, async_collectives, uid, is_async,
+      [&](se::Stream* stream) {
+        const gpu::GpuExecutableRunOptions* gpu_opts =
+            run_options->run_options().gpu_executable_run_options();
+        if (gpu_opts && gpu_opts->enable_mock_nccl_collectives()) {
+          return NcclMockImplCommon(stream);
+        }
+        return P2PImplCommon(run_options, debug_options, stream, args,
+                             group_mode, op_id, replica_group_offsets,
+                             replica_group_values, source_peers, target_peers,
+                             RunCollectivePermute, GetDeviceBufferPairs,
+                             GetStreamId(is_async));
+      });
 #else   // XLA_ENABLE_XCCL
   return absl::InternalError("NCCL disabled");
 #endif  // XLA_ENABLE_XCCL
@@ -411,13 +494,18 @@ absl::Status AllGatherImpl(const ServiceExecutableRunOptions* run_options,
                            absl::Span<const int64_t> replica_group_values) {
 #if XLA_ENABLE_XCCL
   VLOG(3) << "Running AllGather " << (is_async ? "(Async)" : "(Sync)");
-  return RunSyncOrAsync(run_options, collectives, async_collectives, uid,
-                        is_async, [&](se::Stream* stream) {
-                          return AllGatherImplCommon(
-                              run_options, debug_options, stream, args,
-                              group_mode, op_id, replica_group_offsets,
-                              replica_group_values, is_async);
-                        });
+  return RunSyncOrAsync(
+      run_options, collectives, async_collectives, uid, is_async,
+      [&](se::Stream* stream) {
+        const gpu::GpuExecutableRunOptions* gpu_opts =
+            run_options->run_options().gpu_executable_run_options();
+        if (gpu_opts && gpu_opts->enable_mock_nccl_collectives()) {
+          return NcclMockImplCommon(stream);
+        }
+        return AllGatherImplCommon(run_options, debug_options, stream, args,
+                                   group_mode, op_id, replica_group_offsets,
+                                   replica_group_values, is_async);
+      });
 #else   // XLA_ENABLE_XCCL
   return absl::InternalError("NCCL diasbled");
 #endif  // XLA_ENABLE_XCCL
@@ -478,14 +566,19 @@ absl::Status AllReduceImpl(const ServiceExecutableRunOptions* run_options,
                            absl::Span<const int64_t> replica_group_values) {
 #if XLA_ENABLE_XCCL
   VLOG(3) << "Running AllReduce " << (is_async ? "(Async)" : "(Sync)");
-  return RunSyncOrAsync(run_options, collectives, async_collectives, uid,
-                        is_async, [&](se::Stream* stream) {
-                          return AllReduceImplCommon(
-                              run_options, debug_options, stream, args,
-                              group_mode, op_id, reduction_kind,
-                              replica_group_offsets, replica_group_values,
-                              is_async);
-                        });
+  return RunSyncOrAsync(
+      run_options, collectives, async_collectives, uid, is_async,
+      [&](se::Stream* stream) {
+        const gpu::GpuExecutableRunOptions* gpu_opts =
+            run_options->run_options().gpu_executable_run_options();
+        if (gpu_opts && gpu_opts->enable_mock_nccl_collectives()) {
+          return NcclMockImplCommon(stream);
+        }
+        return AllReduceImplCommon(run_options, debug_options, stream, args,
+                                   group_mode, op_id, reduction_kind,
+                                   replica_group_offsets, replica_group_values,
+                                   is_async);
+      });
 #else   // XLA_ENABLE_XCCL
   // NCCL disabled.
   return absl::InternalError("NCCL disabled");
@@ -550,14 +643,19 @@ absl::Status AllToAllImpl(const ServiceExecutableRunOptions* run_options,
                           absl::Span<const int64_t> replica_group_values) {
 #if XLA_ENABLE_XCCL
   VLOG(3) << "Running AllToAll " << (is_async ? "(Async)" : "(Sync)");
-  return RunSyncOrAsync(run_options, collectives, async_collectives, uid,
-                        is_async, [&](se::Stream* stream) {
-                          return AllToAllImplCommon(
-                              run_options, debug_options, stream, args,
-                              group_mode, has_split_dimension, op_id,
-                              replica_group_offsets, replica_group_values,
-                              is_async);
-                        });
+  return RunSyncOrAsync(
+      run_options, collectives, async_collectives, uid, is_async,
+      [&](se::Stream* stream) {
+        const gpu::GpuExecutableRunOptions* gpu_opts =
+            run_options->run_options().gpu_executable_run_options();
+        if (gpu_opts && gpu_opts->enable_mock_nccl_collectives()) {
+          return NcclMockImplCommon(stream);
+        }
+        return AllToAllImplCommon(run_options, debug_options, stream, args,
+                                  group_mode, has_split_dimension, op_id,
+                                  replica_group_offsets, replica_group_values,
+                                  is_async);
+      });
 #else   // XLA_ENABLE_XCCL
   return absl::InternalError("NCCL disabled");
 #endif  // XLA_ENABLE_XCCL
@@ -619,14 +717,19 @@ absl::Status ReduceScatterImpl(const ServiceExecutableRunOptions* run_options,
                                absl::Span<const int64_t> replica_group_values) {
 #if XLA_ENABLE_XCCL
   VLOG(3) << "Running ReduceScatter " << (is_async ? "(Async)" : "(Sync)");
-  return RunSyncOrAsync(run_options, collectives, async_collectives, uid,
-                        is_async, [&](se::Stream* stream) {
-                          return ReduceScatterImplCommon(
-                              run_options, debug_options, stream, args,
-                              group_mode, op_id, reduction_kind,
-                              replica_group_offsets, replica_group_values,
-                              is_async);
-                        });
+  return RunSyncOrAsync(
+      run_options, collectives, async_collectives, uid, is_async,
+      [&](se::Stream* stream) {
+        const gpu::GpuExecutableRunOptions* gpu_opts =
+            run_options->run_options().gpu_executable_run_options();
+        if (gpu_opts && gpu_opts->enable_mock_nccl_collectives()) {
+          return NcclMockImplCommon(stream);
+        }
+        return ReduceScatterImplCommon(run_options, debug_options, stream, args,
+                                       group_mode, op_id, reduction_kind,
+                                       replica_group_offsets,
+                                       replica_group_values, is_async);
+      });
 #else   // XLA_ENABLE_XCCL
   return absl::InternalError("NCCL disabled");
 #endif  // XLA_ENABLE_XCCL
