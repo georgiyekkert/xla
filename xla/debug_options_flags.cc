@@ -92,9 +92,8 @@ DebugOptions DefaultDebugOptionsIgnoringFlags() {
   // flag.
   opts.set_xla_gpu_enable_cublaslt(false);
 
-  // TODO(b/258036887): Enable gpu_graph_level=2. Currently blocked by CUDA 12
-  // integration.
-  opts.set_xla_gpu_graph_level(1);
+  // TODO(b/258036887): Enable gpu_graph_level=3.
+  opts.set_xla_gpu_graph_level(2);
   opts.set_xla_gpu_graph_num_runs_to_instantiate(-1);
   opts.set_xla_gpu_enable_persistent_temp_buffers(false);
   opts.set_xla_gpu_graph_min_graph_size(5);
@@ -917,7 +916,7 @@ void MakeDebugOptionsFlags(std::vector<tsl::Flag>* flag_list,
       int32_setter_for(&DebugOptions::set_xla_gpu_graph_level),
       debug_options->xla_gpu_graph_level(),
       "Set GPU graph level. 0 = off; 1 = capture fusions and memcpys; 2 = "
-      "capture convolutions and gemms; 3 = capture collectives."));
+      "capture gemms; 3 = capture convolutions."));
   flag_list->push_back(tsl::Flag(
       "xla_gpu_graph_num_runs_to_instantiate",
       int32_setter_for(
