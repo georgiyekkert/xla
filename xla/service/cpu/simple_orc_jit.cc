@@ -39,7 +39,10 @@ limitations under the License.
 #include "xla/service/cpu/runtime_conv2d_mkl.h"
 #include "xla/service/cpu/runtime_conv3d.h"
 #include "xla/service/cpu/runtime_custom_call_status.h"
-#include "xla/service/cpu/runtime_fft.h"
+#include "xla/service/cpu/runtime_ducc_fft.h"  // IWYU pragma: keep
+#include "xla/service/cpu/runtime_ducc_single_threaded_fft.h"  // IWYU pragma: keep
+#include "xla/service/cpu/runtime_eigen_fft.h"  // IWYU pragma: keep
+#include "xla/service/cpu/runtime_eigen_single_threaded_fft.h"  // IWYU pragma: keep
 #include "xla/service/cpu/runtime_fork_join.h"
 #include "xla/service/cpu/runtime_fp16.h"
 #include "xla/service/cpu/runtime_key_value_sort.h"
@@ -49,7 +52,6 @@ limitations under the License.
 #include "xla/service/cpu/runtime_pow.h"
 #include "xla/service/cpu/runtime_single_threaded_conv2d.h"
 #include "xla/service/cpu/runtime_single_threaded_conv3d.h"
-#include "xla/service/cpu/runtime_single_threaded_fft.h"
 #include "xla/service/cpu/runtime_single_threaded_matmul.h"
 #include "xla/service/cpu/runtime_topk.h"
 #include "xla/service/cpu/windows_compatibility.h"
@@ -294,6 +296,7 @@ bool RegisterKnownJITSymbols() {
   REGISTER_CPU_RUNTIME_SYMBOL(EigenConv3DF16);
   REGISTER_CPU_RUNTIME_SYMBOL(EigenConv3DF32);
   REGISTER_CPU_RUNTIME_SYMBOL(EigenFft);
+  REGISTER_CPU_RUNTIME_SYMBOL(DuccFft);
   REGISTER_CPU_RUNTIME_SYMBOL(EigenMatMulF16);
   REGISTER_CPU_RUNTIME_SYMBOL(EigenMatMulF32);
   REGISTER_CPU_RUNTIME_SYMBOL(EigenMatMulF64);
@@ -313,6 +316,7 @@ bool RegisterKnownJITSymbols() {
   REGISTER_CPU_RUNTIME_SYMBOL(EigenSingleThreadedConv3DF16);
   REGISTER_CPU_RUNTIME_SYMBOL(EigenSingleThreadedConv3DF32);
   REGISTER_CPU_RUNTIME_SYMBOL(EigenSingleThreadedFft);
+  REGISTER_CPU_RUNTIME_SYMBOL(DuccSingleThreadedFft);
   REGISTER_CPU_RUNTIME_SYMBOL(EigenSingleThreadedMatMulF16);
   REGISTER_CPU_RUNTIME_SYMBOL(EigenSingleThreadedMatMulF32);
   REGISTER_CPU_RUNTIME_SYMBOL(EigenSingleThreadedMatMulF64);
