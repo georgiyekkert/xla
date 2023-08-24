@@ -261,8 +261,6 @@ def MHLO_ConvertOp : MHLO_UnaryElementwiseOp<"convert",
   let builders = [
     OpBuilder<(ins "Value":$operand, "Type":$result_element_ty)>];
 
-  let hasFolder = 1;
-
   let hasCanonicalizer = 1;
 
   let hasCustomHLOConverter = 1;

@@ -1785,26 +1785,6 @@ void ConvertOp::build(OpBuilder& builder, OperationState& result, Value operand,
   build(builder, result, resultTy, operand);
 }
 
-OpFoldResult ConvertOp::fold(FoldAdaptor adaptor) {
-  auto operands = adaptor.getOperands();
-  auto operandTy = getOperand().getType().cast<TensorType>();
-  auto resultTy = getResult().getType().cast<TensorType>();
-  if (operandTy == resultTy) return getOperand();
-
-  // If the result has non-static shape, a convert op is necessary to go from
-  // static shape to non-static shape.
-  if (!resultTy.hasStaticShape()) return {};
-
-  // If the operand is constant, we can do the conversion now.
-  auto elementsAttr = operands.front().dyn_cast_or_null<ElementsAttr>();
-  if (!elementsAttr) return {};
-
-  // Prevent folding if the result is too large.
-  if (elementsAttr.getNumElements() > kFoldOpEltLimit) return {};
-  return hlo::convertElementsAttr(elementsAttr,
-                                  getElementTypeOrSelf(getResult()));
-}
-
 namespace {
 
 struct EliminateRedundantConvert : public OpRewritePattern<ConvertOp> {
