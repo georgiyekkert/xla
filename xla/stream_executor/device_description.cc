@@ -15,7 +15,6 @@ limitations under the License.
 
 #include "xla/stream_executor/device_description.h"
 
-#include <algorithm>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -23,6 +22,7 @@ limitations under the License.
 
 #include "absl/strings/str_cat.h"
 #include "tsl/lib/math/math_util.h"
+#include "tsl/platform/logging.h"
 #include "tsl/platform/numbers.h"
 
 namespace stream_executor {

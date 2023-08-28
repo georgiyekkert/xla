@@ -1,12 +1,12 @@
 # Placeholder: load py_proto_library
+load("//xla:xla.bzl", "xla_cc_test", "xla_py_proto_library")
+load("//third_party/compute_library:build_defs.bzl", "if_enable_acl")
 load("@tsl//tsl:tsl.default.bzl", "filegroup", "get_compatible_with_portable")
-load("@tsl//tsl/platform:rules_cc.bzl", "cc_library")
 load(
     "@tsl//tsl/platform:build_config.bzl",
     "tf_proto_library",
 )
-load("//third_party/compute_library:build_defs.bzl", "if_enable_acl")
-load("//xla:xla.bzl", "xla_cc_test", "xla_py_proto_library")
+load("@tsl//tsl/platform:rules_cc.bzl", "cc_library")
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
@@ -313,11 +313,15 @@ cc_library(
         "@com_google_absl//absl/numeric:bits",
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/strings:str_format",
+        "@com_google_absl//absl/synchronization",
         "@com_google_absl//absl/types:span",
+        "@eigen_archive//:eigen3",
         "@tsl//tsl/lib/gtl:iterator_range",
         "@tsl//tsl/lib/math:math_util",
+        "@tsl//tsl/platform:bfloat16",
         "@tsl//tsl/platform:env",
         "@tsl//tsl/platform:errors",
+        "@tsl//tsl/platform:float8",
         "@tsl//tsl/platform:logging",
         "@tsl//tsl/platform:numbers",
         "@tsl//tsl/platform:stacktrace",
