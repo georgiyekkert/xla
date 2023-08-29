@@ -109,6 +109,7 @@ cc_library(
     srcs = ["collection_registry.cc"],
     hdrs = ["collection_registry.h"],
     visibility = set_external_visibility([
+        "//learning/brain/google/monitoring:__pkg__",
         "//tensorflow/core:__subpackages__",
     ]),
     deps = [

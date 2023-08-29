@@ -1,16 +1,17 @@
 load("//tsl:tsl.default.bzl", "filegroup")
 load(
-    "//tsl/platform:rules_cc.bzl",
-    "cc_library",
-)
-load(
     "//tsl/platform:build_config.bzl",
     "tsl_cc_test",
+)
+load(
+    "//tsl/platform:rules_cc.bzl",
+    "cc_library",
 )
 
 package(
     # copybara:uncomment default_applicable_licenses = ["//tensorflow:license"],
     default_visibility = [
+        "//learning/brain/google/monitoring:__pkg__",
         "//tensorflow/core/lib/histogram:__pkg__",
         "//tsl/lib/monitoring:__pkg__",
     ],
