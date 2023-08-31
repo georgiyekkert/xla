@@ -2053,9 +2053,16 @@ PjRtStreamExecutorExecutable::PjRtStreamExecutorExecutable(
 Status PjRtStreamExecutorExecutable::SetUpDonation(bool tuple_inputs) {
   parameters_that_must_be_donated_.reserve(executables_.size());
   for (auto& executable : executables_) {
-    TF_ASSIGN_OR_RETURN(std::vector<int> parameters_to_donate,
-                        ComputeParametersThatMustBeDonated(
-                            executable->executable()->module(), tuple_inputs));
+    TF_ASSIGN_OR_RETURN(
+        std::vector<int> parameters_to_donate,
+        ComputeParametersThatMustBeDonated(
+            executable->executable()
+                ->module()
+                .entry_computation()
+                ->num_parameters(),
+            executable->executable()->module().input_output_alias_config(),
+            executable->executable()->module().entry_computation(),
+            tuple_inputs));
     parameters_that_must_be_donated_.emplace_back(
         std::move(parameters_to_donate));
   }

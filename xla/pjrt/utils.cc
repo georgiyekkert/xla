@@ -231,24 +231,23 @@ Status DetermineArgumentLayoutsFromCompileOptions(
 }
 
 StatusOr<std::vector<int>> ComputeParametersThatMustBeDonated(
-    const HloModule& module, bool tuple_inputs) {
-  HloComputation* computation = module.entry_computation();
+    int number_parameters, HloInputOutputAliasConfig& config,
+    std::optional<HloComputation*> computation, bool tuple_inputs) {
   int number_of_parameters = [&]() -> int {
     if (tuple_inputs) {
-      CHECK_EQ(computation->num_parameters(), 1);
+      CHECK_EQ(number_parameters, 1);
       const Shape& input_tuple_shape =
-          computation->parameter_instruction(0)->shape();
+          computation.value()->parameter_instruction(0)->shape();
       CHECK(input_tuple_shape.IsTuple());
       return input_tuple_shape.tuple_shapes_size();
     } else {
-      return computation->num_parameters();
+      return number_parameters;
     }
   }();
   // If any buffer in a parameter is aliased we will donate the entire input
   // parameter.
   std::vector<int> parameters_to_donate;
-  parameters_to_donate.reserve(computation->num_parameters());
-  const HloInputOutputAliasConfig& config = module.input_output_alias_config();
+  parameters_to_donate.reserve(number_parameters);
   TF_RETURN_IF_ERROR(config.ForEachAliasWithStatus(
       [&](const ShapeIndex& output_index,
           const HloInputOutputAliasConfig::Alias& alias) {

@@ -1017,9 +1017,15 @@ StatusOr<std::optional<std::string>> TfrtCpuExecutable::Fingerprint() const {
 }
 
 Status TfrtCpuExecutable::SetUpDonation(bool tuple_inputs) {
-  TF_ASSIGN_OR_RETURN(parameters_that_must_be_donated_,
-                      ComputeParametersThatMustBeDonated(
-                          *cpu_executable_->shared_module(), tuple_inputs));
+  TF_ASSIGN_OR_RETURN(
+      parameters_that_must_be_donated_,
+      ComputeParametersThatMustBeDonated(
+          (*cpu_executable_->shared_module())
+              .entry_computation()
+              ->num_parameters(),
+          (*cpu_executable_->shared_module()).input_output_alias_config(),
+          (*cpu_executable_->shared_module()).entry_computation(),
+          tuple_inputs));
   return OkStatus();
 }
 
