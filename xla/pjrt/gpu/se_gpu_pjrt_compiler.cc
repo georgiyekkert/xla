@@ -16,6 +16,7 @@ limitations under the License.
 #include "xla/pjrt/gpu/se_gpu_pjrt_compiler.h"
 
 #include <memory>
+#include <utility>
 
 #include "absl/status/status.h"
 #include "xla/pjrt/gpu/se_gpu_pjrt_client.h"
@@ -27,7 +28,7 @@ namespace xla {
 namespace {
 
 bool IsGpuClient(const PjRtClient& client) {
-  return client.platform_id() == GpuId();
+  return client.platform_id() == CudaId() || client.platform_id() == RocmId();
 }
 
 bool IsSameTopology(const PjRtTopologyDescription& topology1,
@@ -83,6 +84,6 @@ StreamExecutorGpuCompiler::Compile(CompileOptions options,
 REGISTER_MODULE_INITIALIZER(pjrt_register_se_gpu_compiler, {
   std::unique_ptr<PjRtCompiler> compiler =
       std::make_unique<StreamExecutorGpuCompiler>();
-  PjRtRegisterCompiler(GpuName(), std::move(compiler));
+  PjRtRegisterCompiler(CudaName(), std::move(compiler));
 });
 }  // namespace xla

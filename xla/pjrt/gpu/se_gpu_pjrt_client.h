@@ -29,6 +29,7 @@ limitations under the License.
 #include "xla/pjrt/gpu/gpu_topology.h"
 #include "xla/pjrt/pjrt_stream_executor_client.h"
 #include "xla/statusor.h"
+#include "tsl/platform/fingerprint.h"
 
 namespace stream_executor {
 
@@ -164,7 +165,7 @@ class StreamExecutorGpuClient : public xla::PjRtStreamExecutorClient {
             std::move(allocator), std::move(host_memory_allocator),
             should_stage_host_to_device_transfers, std::move(gpu_run_options)),
         topology_(xla::StreamExecutorGpuTopologyDescription::Create(
-            xla::GpuId(), std::move(platform_name),
+            tsl::Fingerprint64(platform_name), platform_name,
             devices_.back()->device_kind(), devices_)) {}
 
   xla::StatusOr<xla::DeviceAssignment> GetDefaultDeviceAssignment(

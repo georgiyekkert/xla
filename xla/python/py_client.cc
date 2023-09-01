@@ -25,6 +25,7 @@ limitations under the License.
 #include "absl/container/flat_hash_map.h"
 #include "xla/pjrt/mlir_to_hlo.h"
 #include "xla/pjrt/pjrt_client.h"
+#include "xla/pjrt/pjrt_compiler.h"
 #include "xla/pjrt/pjrt_stream_executor_client.h"
 #include "xla/python/callback.h"
 #include "xla/python/exceptions.h"
@@ -645,7 +646,8 @@ StatusOr<XlaOp> PyClient::EmitPythonCallbackFromDescriptor(
   Shape result_shape = ShapeUtil::MakeTupleShape(result_shapes_with_layout);
   std::string callback_str = std::to_string(descriptor);
   std::string callback_name = "xla_python_cpu_callback";
-  if (ifrt_client_->platform_id() == GpuId()) {
+  if (ifrt_client_->platform_id() == CudaId() ||
+      ifrt_client_->platform_id() == RocmId()) {
     callback_name = "xla_python_gpu_callback";
   }
   XlaOp result =
