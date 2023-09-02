@@ -155,6 +155,8 @@ class HloEvaluatorTypedVisitor : public ConstDfsHloVisitorWithDefault {
   }
 
   Status DefaultAction(const HloInstruction* hlo_instruction) override {
+    VLOG(0) << "I: " << hlo_instruction->ToString();
+    XLA_VLOG_LINES(0, hlo_instruction->GetModule()->ToString());
     return Unimplemented("unhandled HLO ops for HloEvaluator: %s.",
                          HloOpcodeString(hlo_instruction->opcode()));
   }
