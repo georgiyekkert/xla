@@ -49,7 +49,6 @@ enum class TargetIntrinsicID {
 enum class TargetDeviceFunctionID {
   kAtan2 = 0,
   kCos,
-  kErfcinv,
   kExp,
   kExpm1,
   kFmod,
@@ -57,7 +56,6 @@ enum class TargetDeviceFunctionID {
   kLog,
   kLog1p,
   kPow,
-  kRound,
   kRsqrt,
   kSin,
   kSqrt,
