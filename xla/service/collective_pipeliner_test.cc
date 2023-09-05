@@ -20,8 +20,10 @@ limitations under the License.
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include "xla/hlo/ir/hlo_casting_utils.h"
 #include "xla/hlo/ir/hlo_computation.h"
 #include "xla/hlo/ir/hlo_instruction.h"
+#include "xla/hlo/ir/hlo_instructions.h"
 #include "xla/hlo/ir/hlo_module.h"
 #include "xla/hlo/ir/hlo_opcode.h"
 #include "xla/hlo/utils/hlo_matchers.h"
@@ -1339,6 +1341,94 @@ ENTRY entry {
                            CollectivePipeliner::PipeliningDirection::kForward)
                   .value());
   XLA_VLOG_LINES(1, module->ToString());
+}
+
+TEST_F(CollectivePipelinerTest, TransformRecvSendBackwards) {
+  constexpr absl::string_view hlo_string = R"(
+  HloModule module
+  cond {
+    param = (u32[], f32[1, 1024, 1024]) parameter(0)
+    count = get-tuple-element(%param), index=0
+    ub = u32[] constant(25)
+    ROOT result = pred[] compare(count, ub), direction=LT
+  }
+
+  body {
+    param = (u32[], f32[1, 1024, 1024]) parameter(0)
+    count = get-tuple-element(%param), index=0
+    p = get-tuple-element(%param), index=1
+    c1 = u32[] constant(1)
+    new_count = u32[] add(count, c1)
+
+    after-all = token[] after-all()
+    recv = (f32[1, 1024, 1024], u32[], token[]) recv(after-all), channel_id=1, frontend_attributes={
+      _xla_send_recv_source_target_pairs="{{0, 1}, {1, 2}, {2, 3}, {3, 4}}"
+    }
+    send = (f32[1, 1024, 1024], u32[], token[]) send(p, after-all), channel_id=1, frontend_attributes={
+      _xla_send_recv_source_target_pairs="{{0, 1}, {1, 2}, {2, 3}, {3, 4}}"
+    }
+    recv-done = (f32[1, 1024, 1024], token[]) recv-done(recv), channel_id=1
+    recv-data = f32[1, 1024, 1024] get-tuple-element(recv-done), index=0
+
+    replica = u32[] replica-id()
+    c10 = u32[] constant(10)
+    sum = u32[] add(replica, c10)
+    sum2 = u32[] add(sum, count)
+    conv = f32[] convert(sum2)
+    b = f32[1, 1024, 1024] add(p, recv-data)
+    c = f32[1, 1024, 1024] multiply(b, b)
+    d = f32[1, 1024, 1024] tan(c)
+    s = f32[1, 1024, 1024] dot(c, d), lhs_batch_dims={0}, lhs_contracting_dims={1}, rhs_batch_dims={0}, rhs_contracting_dims={1}
+
+    send-done = token[] send-done(send), channel_id=1
+    ROOT result = (u32[], f32[1, 1024, 1024]) tuple(new_count, s)
+  }
+
+  ENTRY test_computation {
+    c0 = u32[] constant(0)
+    f0 = f32[] constant(0.0)
+    init = f32[1, 1024, 1024] broadcast(f0), dimensions={}
+    while_init = (u32[], f32[1, 1024, 1024]) tuple(c0, init)
+    while_result = (u32[], f32[1, 1024, 1024]) while(while_init), body=body, condition=cond, backend_config="{\"known_trip_count\":{\"n\":\"25\"}}"
+    ROOT result = f32[1, 1024, 1024] get-tuple-element(while_result), index=1
+  }
+  )";
+
+  auto should_pipeline = [](const HloInstruction* instruction) {
+    if (!HloPredicateIsOp<HloOpcode::kRecvDone>(instruction)) return false;
+    const HloRecvDoneInstruction* recv_done =
+        dynamic_cast<const HloRecvDoneInstruction*>(instruction);
+    if (recv_done->is_host_transfer()) return false;
+    // Check that the recv-done is used for non-trivial computation, which can
+    // also help avoid repeatedly pipelining a loop.
+    return (recv_done->user_count() == 1 && recv_done->parent() != nullptr &&
+            recv_done->users()[0] != recv_done->parent()->root_instruction());
+  };
+  auto module = ParseAndReturnUnverifiedModule(hlo_string, config_).value();
+  EXPECT_TRUE(RunOptimizer(module.get(), /*last_run=*/true, 0,
+                           /*pipeline_use_tree=*/false,
+                           /*process_different_sized_ops=*/false,
+                           CollectivePipeliner::PipeliningDirection::kBackward,
+                           should_pipeline)
+                  .value());
+  XLA_VLOG_LINES(10, module->ToString());
+  auto recv1 =
+      DynCast<HloRecvInstruction>(FindInstruction(module.get(), "recv.1"));
+  EXPECT_NE(recv1, nullptr);
+  auto recv2 =
+      DynCast<HloRecvInstruction>(FindInstruction(module.get(), "recv.2"));
+  EXPECT_NE(recv2, nullptr);
+  EXPECT_EQ(recv1->channel_id(), recv2->channel_id());
+
+  auto send1 =
+      DynCast<HloSendInstruction>(FindInstruction(module.get(), "send.1"));
+  EXPECT_NE(send1, nullptr);
+  auto send2 =
+      DynCast<HloSendInstruction>(FindInstruction(module.get(), "send.2"));
+  EXPECT_NE(send2, nullptr);
+  EXPECT_EQ(send1->channel_id(), send2->channel_id());
+
+  EXPECT_EQ(recv1->channel_id(), send1->channel_id());
 }
 
 }  // namespace

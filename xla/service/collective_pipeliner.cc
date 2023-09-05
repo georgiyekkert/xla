@@ -456,6 +456,10 @@ std::optional<std::vector<HloInstruction*>> CollectIndependentOperandChain(
     }
   }
   for (auto* chain_instr : chain) {
+    // Allow tokens in the chain.
+    if (chain_instr->opcode() == HloOpcode::kAfterAll) {
+      continue;
+    }
     const bool all_users_in_chain = absl::c_all_of(
         chain_instr->users(), [&visited_set](const HloInstruction* u) {
           return visited_set.contains(u);
@@ -544,6 +548,10 @@ struct WhileMoveInfo {
 // Set channel_id of instruction to next available to avoid collisions.
 void UpdateInstructionChannelId(HloInstruction* cloned_instr,
                                 int64_t& next_channel_id) {
+  // Avoid updating Send and Recv instructions because pipelined Send and Recv
+  // instructions should keep the same channel-id to indicate that the group of
+  // instructions need to cooperate.
+  if (DynCast<HloSendRecvInstruction>(cloned_instr)) return;
   if (auto* channel_instr = DynCast<HloChannelInstruction>(cloned_instr)) {
     if (channel_instr->channel_id()) {
       channel_instr->set_channel_id(next_channel_id++);
@@ -1352,14 +1360,30 @@ static Status TransformLoopBackward(const WhileLoopAnalysis& loop_analysis,
   absl::flat_hash_map<HloInstruction*, int64_t> collective_to_move_map;
   absl::flat_hash_set<HloInstruction*> is_pipelined_instruction;
   absl::flat_hash_map<HloInstruction*, int64_t> is_output_instruction;
+  absl::flat_hash_set<const HloInstruction*> sideeffect_unused_instructions;
   int64_t count = 0;
   // Add instructions to duplicate into a set.
   for (auto& to_move : loop_analysis.GetMoveInfos()) {
-    collective_to_move_map[to_move.collective_to_move] = count;
-    is_pipelined_instruction.insert(to_move.collective_to_move);
+    HloInstruction* instr = to_move.collective_to_move;
+    collective_to_move_map[instr] = count;
+    is_pipelined_instruction.insert(instr);
     is_pipelined_instruction.insert(to_move.formatting_ops.begin(),
                                     to_move.formatting_ops.end());
     ++count;
+
+    // Collect unused instructions with side-effect in the chain, so that we
+    // can skip cloning such instructions. This is to work around the fact that
+    // we can't have unused Recv instructions to avoid deadlock, and
+    // HloModule::RemoveUnusedComputations can't remove unused Recv instructions
+    // as they are tagged as has-side-effect. The operand_count check here
+    // assumes we only need to collect such instructions when pipelining
+    // Recv-done, which may be changed though.
+    if (instr->operand_count() == 1) {
+      const HloInstruction* opnd = instr->operand(0);
+      if (opnd->HasSideEffect() && opnd->user_count() == 1) {
+        sideeffect_unused_instructions.insert(opnd);
+      }
+    }
   }
   HloInstruction* while_loop = loop_analysis.while_loop_instruction();
   HloComputation* while_body = while_loop->while_body();
@@ -1454,7 +1478,8 @@ static Status TransformLoopBackward(const WhileLoopAnalysis& loop_analysis,
   // input/output shapes and how we connect loop iterator to the original
   // chains that we are pipelining.
   for (auto* instr : while_body->MakeInstructionPostOrder()) {
-    if (instr == loop_parameter || instr == while_body->root_instruction()) {
+    if (instr == loop_parameter || instr == while_body->root_instruction() ||
+        sideeffect_unused_instructions.contains(instr)) {
       continue;
     }
     HloInstruction* cloned_instr = nullptr;
@@ -1548,14 +1573,10 @@ static Status TransformLoopBackward(const WhileLoopAnalysis& loop_analysis,
   std::vector<HloInstruction*> output_tuple_instructions(
       while_loop->shape().tuple_shapes_size(), nullptr);
   for (auto* instr : while_body->MakeInstructionPostOrder()) {
-    if (instr == loop_parameter || instr == while_body->root_instruction()) {
+    if (instr == loop_parameter || instr == while_body->root_instruction() ||
+        sideeffect_unused_instructions.contains(instr)) {
       continue;
     }
-    auto new_operands =
-        MapNewOperands(instr->operands(), while_body_replacement_map);
-    HloInstruction* cloned_instr = while_loop->parent()->AddInstruction(
-        instr->CloneWithNewOperands(instr->shape(), new_operands));
-    UpdateInstructionChannelId(cloned_instr, next_channel_id);
     auto instruction_is_output_it = is_output_instruction.find(instr);
     auto it = collective_to_move_map.find(instr);
     if (it != collective_to_move_map.end()) {
@@ -1570,6 +1591,11 @@ static Status TransformLoopBackward(const WhileLoopAnalysis& loop_analysis,
       }
       continue;
     }
+    auto new_operands =
+        MapNewOperands(instr->operands(), while_body_replacement_map);
+    HloInstruction* cloned_instr = while_loop->parent()->AddInstruction(
+        instr->CloneWithNewOperands(instr->shape(), new_operands));
+    UpdateInstructionChannelId(cloned_instr, next_channel_id);
     while_body_replacement_map[instr] = cloned_instr;
     if (instruction_is_output_it != is_output_instruction.end()) {
       output_tuple_instructions[instruction_is_output_it->second] =
