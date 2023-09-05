@@ -256,6 +256,11 @@ class ShapeVerifier : public DfsHloVisitor {
   Status CheckTernaryShape(const HloInstruction* instruction);
   Status CheckVariadicShape(const HloInstruction* instruction);
 
+  std::string StringifyShape(const Shape& s) {
+    return opts_.layout_sensitive ? ShapeUtil::HumanStringWithLayout(s)
+                                  : ShapeUtil::HumanString(s);
+  }
+
  private:
   bool ShapesSameIgnoringFpPrecision(const Shape& a, const Shape& b,
                                      bool minor_to_major_only = false) {
@@ -268,11 +273,6 @@ class ShapeVerifier : public DfsHloVisitor {
     }
     equal.IgnoreFpPrecision();
     return equal(a, b);
-  }
-
-  std::string StringifyShape(const Shape& s) {
-    return opts_.layout_sensitive ? ShapeUtil::HumanStringWithLayout(s)
-                                  : ShapeUtil::HumanString(s);
   }
 
   // Helpers that switch on allow_mixed_precision_.
