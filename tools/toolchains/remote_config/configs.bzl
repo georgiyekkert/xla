@@ -2,9 +2,10 @@
 
 load("//tools/toolchains/remote_config:rbe_config.bzl", "sigbuild_tf_configs", "tensorflow_local_config", "tensorflow_rbe_config", "tensorflow_rbe_win_config")
 
-def initialize_rbe_configs():
+def initialize_rbe_configs(hermetic = False):
     tensorflow_local_config(
         name = "local_execution",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -12,6 +13,7 @@ def initialize_rbe_configs():
         os = "ubuntu16.04-manylinux2010",
         python_versions = ["3"],
         compiler = "",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -24,6 +26,7 @@ def initialize_rbe_configs():
         python_versions = ["3"],
         tensorrt_install_path = "/usr",
         tensorrt_version = "5.1",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -37,6 +40,7 @@ def initialize_rbe_configs():
         tensorrt_install_path = "/usr",
         tensorrt_version = "6.0",
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -50,6 +54,7 @@ def initialize_rbe_configs():
         tensorrt_install_path = "/usr",
         tensorrt_version = "6.0",
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -63,6 +68,7 @@ def initialize_rbe_configs():
         tensorrt_install_path = "/usr",
         tensorrt_version = "6.0",
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -76,6 +82,7 @@ def initialize_rbe_configs():
         tensorrt_install_path = "/usr",
         tensorrt_version = "7.1",
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     # TODO(klimek): Delete this once all users are migrated to a python-version
@@ -91,6 +98,7 @@ def initialize_rbe_configs():
         python_versions = ["3"],
         tensorrt_install_path = "/usr",
         tensorrt_version = "6.0",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -104,6 +112,7 @@ def initialize_rbe_configs():
         tensorrt_version = "7.1",
         sysroot = "/dt7",
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -114,6 +123,7 @@ def initialize_rbe_configs():
         os = "ubuntu18.04-manylinux2010-multipython",
         python_versions = ["2.7", "3.5", "3.6", "3.7", "3.8", "3.9"],
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -124,6 +134,7 @@ def initialize_rbe_configs():
         os = "ubuntu20.04-manylinux2014-multipython",
         python_versions = ["3.7", "3.8", "3.9", "3.10", "3.11"],
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -137,6 +148,7 @@ def initialize_rbe_configs():
         tensorrt_version = "7.2",
         sysroot = "/dt9",
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -150,6 +162,7 @@ def initialize_rbe_configs():
         tensorrt_install_path = "/usr",
         tensorrt_version = "7.2",
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -163,6 +176,7 @@ def initialize_rbe_configs():
         tensorrt_version = "7.2",
         sysroot = "/dt9",
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -176,6 +190,7 @@ def initialize_rbe_configs():
         tensorrt_install_path = "/usr",
         tensorrt_version = "7.2",
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -189,6 +204,7 @@ def initialize_rbe_configs():
         tensorrt_version = "7.2",
         sysroot = "/dt9",
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -202,6 +218,7 @@ def initialize_rbe_configs():
         tensorrt_install_path = "/usr",
         tensorrt_version = "7.2",
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -215,6 +232,7 @@ def initialize_rbe_configs():
         tensorrt_version = "8.4",
         sysroot = "/dt9",
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -228,6 +246,7 @@ def initialize_rbe_configs():
         tensorrt_install_path = "/usr",
         tensorrt_version = "8.4",
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -239,6 +258,7 @@ def initialize_rbe_configs():
         python_versions = ["3.8", "3.9", "3.10", "3.11"],
         sysroot = "/dt9",
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_config(
@@ -250,11 +270,13 @@ def initialize_rbe_configs():
         os = "ubuntu20.04-manylinux2014-multipython",
         python_versions = ["3.8", "3.9", "3.10", "3.11"],
         python_install_path = "/usr/local",
+        hermetic = hermetic,
     )
 
     tensorflow_rbe_win_config(
         name = "windows_py37",
         python_bin_path = "C:/Python37/python.exe",
+        hermetic = hermetic,
     )
 
     # TF-Version-Specific SIG Build RBE Configs. The crosstool generated from these
@@ -302,6 +324,7 @@ def initialize_rbe_configs():
             "TF_SYSROOT": "/dt9",
             "TF_TENSORRT_VERSION": "7.2",
         },
+        hermetic = hermetic,
     )
 
     sigbuild_tf_configs(
@@ -341,6 +364,7 @@ def initialize_rbe_configs():
             "TF_SYSROOT": "/dt9",
             "TF_TENSORRT_VERSION": "7.2",
         },
+        hermetic = hermetic,
     )
 
     sigbuild_tf_configs(
@@ -379,6 +403,7 @@ def initialize_rbe_configs():
             "TF_SYSROOT": "/dt9",
             "TF_TENSORRT_VERSION": "7.2",
         },
+        hermetic = hermetic,
     )
 
     sigbuild_tf_configs(
@@ -418,6 +443,7 @@ def initialize_rbe_configs():
             "TF_SYSROOT": "/dt9",
             "TF_TENSORRT_VERSION": "7.2",
         },
+        hermetic = hermetic,
     )
 
     sigbuild_tf_configs(
@@ -458,6 +484,7 @@ def initialize_rbe_configs():
             "TF_SYSROOT": "/dt9",
             "TF_TENSORRT_VERSION": "8.4",
         },
+        hermetic = hermetic,
     )
 
     sigbuild_tf_configs(
@@ -497,6 +524,7 @@ def initialize_rbe_configs():
             "TF_SYSROOT": "/dt9",
             "TF_TENSORRT_VERSION": "7.2",
         },
+        hermetic = hermetic,
     )
 
     sigbuild_tf_configs(
@@ -537,6 +565,7 @@ def initialize_rbe_configs():
             "TF_SYSROOT": "/dt9",
             "TF_TENSORRT_VERSION": "8.4",
         },
+        hermetic = hermetic,
     )
 
     sigbuild_tf_configs(
@@ -576,6 +605,7 @@ def initialize_rbe_configs():
             "TF_SYSROOT": "/dt9",
             "TF_TENSORRT_VERSION": "7.2",
         },
+        hermetic = hermetic,
     )
 
     sigbuild_tf_configs(
@@ -616,6 +646,7 @@ def initialize_rbe_configs():
             "TF_SYSROOT": "/dt9",
             "TF_TENSORRT_VERSION": "8.4",
         },
+        hermetic = hermetic,
     )
 
     sigbuild_tf_configs(
@@ -655,6 +686,7 @@ def initialize_rbe_configs():
             "TF_SYSROOT": "/dt9",
             "TF_TENSORRT_VERSION": "7.2",
         },
+        hermetic = hermetic,
     )
 
     sigbuild_tf_configs(
@@ -693,4 +725,5 @@ def initialize_rbe_configs():
             "TF_SYSROOT": "/dt9",
             "TF_TENSORRT_VERSION": "7.2",
         },
+        hermetic = hermetic,
     )
