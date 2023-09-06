@@ -395,31 +395,28 @@ StatusOr<LaunchDimensions> HloFusionAnalysis::GetLaunchDimensions() {
   }
 }
 
-namespace {
-// Returns the hero reduction of the computation.
-// We always use the first reduce root that triggers unnested reduction emitter
-// as the hero reduction, since all the reductions are required to have the same
-// shape and layout as verified by `IsFusedReductionOutputConsistent()`.
-const HloInstruction* FindHeroReduction(
-    const std::vector<HloInstruction*>& fusion_roots,
-    const std::vector<const HloInstruction*>& heroes) {
-  CHECK(!fusion_roots.empty());
-  for (auto [root, hero] : llvm::zip(fusion_roots, heroes)) {
+const HloInstruction* HloFusionAnalysis::FindHeroReduction() const {
+  CHECK(GetEmitterFusionKind() == EmitterFusionKind::kReduction);
+  auto roots = fusion_roots();
+  CHECK(!roots.empty());
+  // We always use the first reduce root that triggers unnested reduction
+  // emitter as the hero reduction, since all the reductions are required to
+  // have the same shape and layout as verified by
+  // `IsFusedReductionOutputConsistent()`.
+  for (auto [root, hero] : llvm::zip(roots, fusion_heroes_)) {
     if (IsRealReductionHero(*root, *hero)) {
       return hero;
     }
   }
   LOG(FATAL) << "Did not find a hero reduction";
 }
-}  // namespace
 
 const ReductionCodegenInfo* HloFusionAnalysis::GetReductionCodegenInfo() {
   if (reduction_codegen_info_.has_value()) {
     return &reduction_codegen_info_.value();
   }
 
-  const HloInstruction* hero_reduction =
-      FindHeroReduction(fusion_roots(), fusion_heroes_);
+  const HloInstruction* hero_reduction = FindHeroReduction();
 
   auto reduction_codegen_info = ComputeReductionCodegenInfo(hero_reduction);
   reduction_codegen_info_.emplace(std::move(reduction_codegen_info));
@@ -838,6 +835,7 @@ ReductionCodegenInfo HloFusionAnalysis::ComputeReductionCodegenInfo(
     } else {
       num_partial_results = 2;
     }
+    reduction_tiling[kDimX] *= num_partial_results;
   }
 
   // TODO(b/283542954): Autotune num_partial_results?  This can make a big
@@ -858,7 +856,6 @@ ReductionCodegenInfo HloFusionAnalysis::ComputeReductionCodegenInfo(
   }
 
   VLOG(3) << "Each thread will produce " << num_partial_results << " output(s)";
-  reduction_tiling[kDimX] *= num_partial_results;
 
   Vector3 num_threads = {1, num_threads_y, num_threads_x};
   int virtual_thread_scaling_factor =
