@@ -16,13 +16,25 @@ limitations under the License.
 #ifndef XLA_PJRT_TRANSPOSE_KERNELS_H_
 #define XLA_PJRT_TRANSPOSE_KERNELS_H_
 
+#include <immintrin.h>
+
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 
-#include "Eigen/Core"  // from @eigen_archive
+#if (defined(__GNUC__) || defined(__clang__)) && defined(__SSE2__)
+#define XLA_HAS_SSE2
+#elif defined(_MSC_VER) && !defined(_M_ARM64EC) && defined(_M_X64)
+#define XLA_HAS_SSE2
+#elif defined(_MSC_VER) && !defined(_M_ARM64EC) && \
+    (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#define XLA_HAS_SSE2
+#elif defined(__AVX__)
+#define XLA_HAS_SSE2
+#endif
 
-#ifdef EIGEN_VECTORIZE_SSE2
+#ifdef XLA_HAS_SSE2
 #include <emmintrin.h>
 #include <xmmintrin.h>
 #endif
@@ -52,11 +64,312 @@ struct TransposeMicroKernel {
   }
 };
 
-// TODO(phawkins): it would be nice to remove the use of Eigen here, and instead
-// allow for runtime dispatch of, say, AVX or AVX2 kernels where they are
-// supported. On the other hand, using Eigen makes for easier cross-platform
-// portability.
-#if defined(EIGEN_VECTORIZE_SSE2)
+#pragma push_macro("XLA_UNROLL")
+#if defined(__clang__)
+#define XLA_UNROLL _Pragma("unroll")
+#elif defined(__GNUC__)
+#define XLA_UNROLL _Pragma("GCC unroll 128")
+#else
+#define XLA_UNROLL
+#endif
+
+#pragma push_macro("XLA_ALWAYS_INLINE")
+#if defined(__GNUC__) || defined(__clang__)
+#define XLA_ALWAYS_INLINE __attribute__((always_inline))
+#elif defined(_MSC_VER)
+#define XLA_ALWAYS_INLINE __forceinline
+#else
+#define XLA_ALWAYS_INLINE
+#endif
+
+enum class Extract { kLo, kHi };
+
+#ifdef __AVX__
+template <size_t element_size, Extract>
+__m256i Unpack(__m256i a, __m256i b);
+
+#if defined(__AVX2__)
+template <>
+XLA_ALWAYS_INLINE inline __m256i Unpack<1, Extract::kLo>(__m256i a, __m256i b) {
+  return _mm256_unpacklo_epi8(a, b);
+}
+template <>
+XLA_ALWAYS_INLINE inline __m256i Unpack<1, Extract::kHi>(__m256i a, __m256i b) {
+  return _mm256_unpackhi_epi8(a, b);
+}
+
+template <>
+XLA_ALWAYS_INLINE inline __m256i Unpack<2, Extract::kLo>(__m256i a, __m256i b) {
+  return _mm256_unpacklo_epi16(a, b);
+}
+template <>
+XLA_ALWAYS_INLINE inline __m256i Unpack<2, Extract::kHi>(__m256i a, __m256i b) {
+  return _mm256_unpackhi_epi16(a, b);
+}
+
+template <>
+XLA_ALWAYS_INLINE inline __m256i Unpack<4, Extract::kLo>(__m256i a, __m256i b) {
+  return _mm256_unpacklo_epi32(a, b);
+}
+template <>
+XLA_ALWAYS_INLINE inline __m256i Unpack<4, Extract::kHi>(__m256i a, __m256i b) {
+  return _mm256_unpackhi_epi32(a, b);
+}
+
+template <>
+XLA_ALWAYS_INLINE inline __m256i Unpack<8, Extract::kLo>(__m256i a, __m256i b) {
+  return _mm256_unpacklo_epi64(a, b);
+}
+template <>
+XLA_ALWAYS_INLINE inline __m256i Unpack<8, Extract::kHi>(__m256i a, __m256i b) {
+  return _mm256_unpackhi_epi64(a, b);
+}
+#else
+template <>
+XLA_ALWAYS_INLINE inline __m256i Unpack<1, Extract::kLo>(__m256i a, __m256i b) {
+  __m128i a_hi = _mm256_extractf128_si256(a, 1);
+  __m128i b_hi = _mm256_extractf128_si256(b, 1);
+  __m128i a_lo = _mm256_castsi256_si128(a);
+  __m128i b_lo = _mm256_castsi256_si128(b);
+  __m128i hi = _mm_unpacklo_epi8(a_hi, b_hi);
+  __m128i lo = _mm_unpacklo_epi8(a_lo, b_lo);
+  return _mm256_set_m128i(hi, lo);
+}
+template <>
+XLA_ALWAYS_INLINE inline __m256i Unpack<1, Extract::kHi>(__m256i a, __m256i b) {
+  __m128i a_hi = _mm256_extractf128_si256(a, 1);
+  __m128i b_hi = _mm256_extractf128_si256(b, 1);
+  __m128i a_lo = _mm256_castsi256_si128(a);
+  __m128i b_lo = _mm256_castsi256_si128(b);
+  __m128i hi = _mm_unpackhi_epi8(a_hi, b_hi);
+  __m128i lo = _mm_unpackhi_epi8(a_lo, b_lo);
+  return _mm256_set_m128i(hi, lo);
+}
+
+template <>
+XLA_ALWAYS_INLINE inline __m256i Unpack<2, Extract::kLo>(__m256i a, __m256i b) {
+  __m128i a_hi = _mm256_extractf128_si256(a, 1);
+  __m128i b_hi = _mm256_extractf128_si256(b, 1);
+  __m128i a_lo = _mm256_castsi256_si128(a);
+  __m128i b_lo = _mm256_castsi256_si128(b);
+  __m128i hi = _mm_unpacklo_epi16(a_hi, b_hi);
+  __m128i lo = _mm_unpacklo_epi16(a_lo, b_lo);
+  return _mm256_set_m128i(hi, lo);
+}
+template <>
+XLA_ALWAYS_INLINE inline __m256i Unpack<2, Extract::kHi>(__m256i a, __m256i b) {
+  __m128i a_hi = _mm256_extractf128_si256(a, 1);
+  __m128i b_hi = _mm256_extractf128_si256(b, 1);
+  __m128i a_lo = _mm256_castsi256_si128(a);
+  __m128i b_lo = _mm256_castsi256_si128(b);
+  __m128i hi = _mm_unpackhi_epi16(a_hi, b_hi);
+  __m128i lo = _mm_unpackhi_epi16(a_lo, b_lo);
+  return _mm256_set_m128i(hi, lo);
+}
+
+template <>
+XLA_ALWAYS_INLINE inline __m256i Unpack<4, Extract::kLo>(__m256i a, __m256i b) {
+  return _mm256_castps_si256(
+      _mm256_unpacklo_ps(_mm256_castsi256_ps(a), _mm256_castsi256_ps(b)));
+}
+template <>
+XLA_ALWAYS_INLINE inline __m256i Unpack<4, Extract::kHi>(__m256i a, __m256i b) {
+  return _mm256_castps_si256(
+      _mm256_unpackhi_ps(_mm256_castsi256_ps(a), _mm256_castsi256_ps(b)));
+}
+
+template <>
+XLA_ALWAYS_INLINE inline __m256i Unpack<8, Extract::kLo>(__m256i a, __m256i b) {
+  return _mm256_castpd_si256(
+      _mm256_unpacklo_pd(_mm256_castsi256_pd(a), _mm256_castsi256_pd(b)));
+}
+template <>
+XLA_ALWAYS_INLINE inline __m256i Unpack<8, Extract::kHi>(__m256i a, __m256i b) {
+  return _mm256_castpd_si256(
+      _mm256_unpackhi_pd(_mm256_castsi256_pd(a), _mm256_castsi256_pd(b)));
+}
+#endif
+#endif
+
+#ifdef XLA_HAS_SSE2
+template <size_t element_size, Extract>
+__m128i Unpack(__m128i a, __m128i b);
+
+template <>
+XLA_ALWAYS_INLINE inline __m128i Unpack<1, Extract::kLo>(__m128i a, __m128i b) {
+  return _mm_unpacklo_epi8(a, b);
+}
+template <>
+XLA_ALWAYS_INLINE inline __m128i Unpack<1, Extract::kHi>(__m128i a, __m128i b) {
+  return _mm_unpackhi_epi8(a, b);
+}
+
+template <>
+XLA_ALWAYS_INLINE inline __m128i Unpack<2, Extract::kLo>(__m128i a, __m128i b) {
+  return _mm_unpacklo_epi16(a, b);
+}
+template <>
+XLA_ALWAYS_INLINE inline __m128i Unpack<2, Extract::kHi>(__m128i a, __m128i b) {
+  return _mm_unpackhi_epi16(a, b);
+}
+
+template <>
+XLA_ALWAYS_INLINE inline __m128i Unpack<4, Extract::kLo>(__m128i a, __m128i b) {
+  return _mm_unpacklo_epi32(a, b);
+}
+template <>
+XLA_ALWAYS_INLINE inline __m128i Unpack<4, Extract::kHi>(__m128i a, __m128i b) {
+  return _mm_unpackhi_epi32(a, b);
+}
+
+template <>
+XLA_ALWAYS_INLINE inline __m128i Unpack<8, Extract::kLo>(__m128i a, __m128i b) {
+  return _mm_unpacklo_epi64(a, b);
+}
+template <>
+XLA_ALWAYS_INLINE inline __m128i Unpack<8, Extract::kHi>(__m128i a, __m128i b) {
+  return _mm_unpackhi_epi64(a, b);
+}
+
+template <size_t element_size, std::size_t step_size, typename T, std::size_t N>
+XLA_ALWAYS_INLINE inline std::array<T, N> UnpackStep(
+    const std::array<T, N>& last_transpose) {
+  static_assert(N % (step_size * 2) == 0);
+  std::array<T, N> unpack;
+  XLA_UNROLL
+  for (int i = 0; i < N; i += step_size * 2) {
+    XLA_UNROLL
+    for (int j = 0; j < step_size; ++j) {
+      unpack[i + 2 * j + 0] = Unpack<element_size * step_size, Extract::kLo>(
+          last_transpose[i + j], last_transpose[i + j + step_size]);
+      unpack[i + 2 * j + 1] = Unpack<element_size * step_size, Extract::kHi>(
+          last_transpose[i + j], last_transpose[i + j + step_size]);
+    }
+  }
+  return unpack;
+}
+
+template <size_t element_size, std::size_t step_size, size_t max_step_size,
+          typename T, std::size_t N>
+XLA_ALWAYS_INLINE inline std::array<T, N> UnpackSequence(
+    const std::array<T, N>& last_transpose) {
+  if constexpr (element_size * step_size <= max_step_size) {
+    std::array<T, N> unpack =
+        UnpackStep<element_size, step_size>(last_transpose);
+    return UnpackSequence<element_size, step_size * 2, max_step_size>(unpack);
+  }
+  return last_transpose;
+}
+
+template <typename T, int bs>
+struct Sse2SquareTransposeMicroKernelImpl {
+  static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
+                    int64_t ldb) {
+    constexpr size_t element_size = sizeof(T);
+    static_assert(element_size <= 16);
+    static_assert(16 % element_size == 0);
+    static_assert(bs * element_size == sizeof(__m128i));
+    std::array<__m128i, bs> last_transpose;
+    XLA_UNROLL
+    for (int i = 0; i < bs; ++i) {
+      last_transpose[i] =
+          _mm_loadu_si128(reinterpret_cast<const __m128i*>(a + lda * i));
+    }
+
+    last_transpose =
+        UnpackSequence<element_size, /*step_size=*/1, /*max_step_size=*/8>(
+            last_transpose);
+
+    XLA_UNROLL
+    for (int i = 0; i < bs; ++i) {
+      _mm_storeu_si128(reinterpret_cast<__m128i*>(b + ldb * i),
+                       last_transpose[i]);
+    }
+  }
+};
+#endif
+
+#ifdef __AVX__
+template <typename T, int bs>
+struct AvxSquareTransposeMicroKernelImpl {
+  static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
+                    int64_t ldb) {
+    constexpr size_t element_size = sizeof(T);
+    static_assert(element_size <= 16);
+    static_assert(16 % element_size == 0);
+    static_assert(bs * element_size == sizeof(__m256i));
+    std::array<__m256i, bs> last_transpose;
+    XLA_UNROLL
+    for (int i = 0; i < bs / 2; ++i) {
+      auto* row0_low = reinterpret_cast<const __m128i*>(a + lda * (i + 0));
+      auto* row0_high = row0_low + 1;
+      auto* row1_low = reinterpret_cast<const __m128i*>(a + lda * (i + bs / 2));
+      auto* row1_high = row1_low + 1;
+      last_transpose[i] = _mm256_loadu2_m128i(row1_low, row0_low);
+      last_transpose[i + bs / 2] = _mm256_loadu2_m128i(row1_high, row0_high);
+    }
+
+    last_transpose =
+        UnpackSequence<element_size, /*step_size=*/1, /*max_step_size=*/8>(
+            last_transpose);
+
+    XLA_UNROLL
+    for (int i = 0; i < bs; ++i) {
+      _mm256_storeu_si256(reinterpret_cast<__m256i*>(b + ldb * i),
+                          last_transpose[i]);
+    }
+  }
+};
+#endif
+
+#ifdef __AVX__
+template <typename T, int bs>
+struct AvxRectangularTransposeMicroKernelImpl {
+  static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
+                    int64_t ldb) {
+    constexpr size_t element_size = sizeof(T);
+    static_assert(element_size <= 16);
+    static_assert(16 % element_size == 0);
+    static_assert(bs * element_size * 2 == sizeof(__m256i));
+    std::array<__m256i, bs / 2> last_transpose;
+    XLA_UNROLL
+    for (int i = 0; i < bs / 2; ++i) {
+      auto* lo = reinterpret_cast<const __m128i*>(a + lda * (i + 0));
+      auto* hi = reinterpret_cast<const __m128i*>(a + lda * (i + bs / 2));
+      last_transpose[i] = _mm256_loadu2_m128i(hi, lo);
+    }
+
+    last_transpose =
+        UnpackSequence<element_size, /*step_size=*/1, /*max_step_size=*/4>(
+            last_transpose);
+
+    if constexpr (element_size <= 8) {
+      XLA_UNROLL
+      for (int i = 0; i < bs / 2; ++i) {
+#if defined(__AVX2__)
+        last_transpose[i] = _mm256_permute4x64_epi64(last_transpose[i],
+                                                     _MM_SHUFFLE(3, 1, 2, 0));
+#else
+        auto a = last_transpose[i];
+        auto hi = _mm256_permute2f128_si256(a, a, 0b0001'0001);
+        auto lo = _mm256_insertf128_si256(a, _mm256_castsi256_si128(a), 1);
+        last_transpose[i] = _mm256_castpd_si256(_mm256_shuffle_pd(
+            _mm256_castsi256_pd(lo), _mm256_castsi256_pd(hi), 0b1100));
+#endif
+      }
+    }
+
+    XLA_UNROLL
+    for (int i = 0; i < bs / 2; ++i) {
+      auto* lo = reinterpret_cast<__m128i*>(b + ldb * (i * 2 + 0));
+      auto* hi = reinterpret_cast<__m128i*>(b + ldb * (i * 2 + 1));
+      _mm256_storeu2_m128i(hi, lo, last_transpose[i]);
+    }
+  }
+};
+#endif
+
+#if defined(XLA_HAS_SSE2)
 template <>
 struct TransposeMicroKernel<uint8_t, /*bs=*/4> {
   static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
@@ -66,6 +379,7 @@ struct TransposeMicroKernel<uint8_t, /*bs=*/4> {
     // [  4,  5,  6,  7 ]
     // [  8,  9, 10, 11 ]
     // [ 12, 13, 14, 15 ]
+    XLA_UNROLL
     for (int i = 0; i < 4; ++i) {
       // Note: We would ideally use `_mm_loadu_si32` here but older compilers do
       // not support it. However, we can replicate it using a sequence such that
@@ -82,10 +396,8 @@ struct TransposeMicroKernel<uint8_t, /*bs=*/4> {
     __m128i x_2_3 = _mm_unpacklo_epi8(loads[2], loads[3]);
     // [  0,  4,  8, 12,  1,  5,  9, 13,  2,  6, 10, 14,  3,  7, 11, 15 ]
     __m128i x = _mm_unpacklo_epi16(x_0_1, x_2_3);
-    // [  2,  6, 10, 14,  3,  7, 11, 15,  2,  6, 10, 14,  3,  7, 11, 15 ]
-    __m128i x_hi = _mm_unpackhi_epi64(x, x);
 
-    // Note: We would ideally use `_mm_store_si32` here but older compilers do
+    // Note: We would ideally use `_mm_storeu_si32` here but older compilers do
     // not support it. However, we can replicate it using a sequence such that
     // even older compilers will turn this into a single movd instruction.
     // memcpy is used because `b + ldb * i` is not guaranteed to be aligned to a
@@ -97,19 +409,23 @@ struct TransposeMicroKernel<uint8_t, /*bs=*/4> {
     __m128i r1 = _mm_shuffle_epi32(x, _MM_SHUFFLE(1, 1, 1, 1));
     memcpy(b + ldb * 1, &r1, sizeof(uint32_t));
     // [  2,  6, 10, 14 ]
-    memcpy(b + ldb * 2, &x_hi, sizeof(uint32_t));
+    __m128i r2 = _mm_unpackhi_epi32(x, x);
+    memcpy(b + ldb * 2, &r2, sizeof(uint32_t));
     // [  3,  7, 11, 15 ]
-    __m128i r3 = _mm_shuffle_epi32(x_hi, _MM_SHUFFLE(1, 1, 1, 1));
+    __m128i r3 = _mm_shuffle_epi32(x, _MM_SHUFFLE(3, 3, 3, 3));
     memcpy(b + ldb * 3, &r3, sizeof(uint32_t));
   }
 };
 #endif
 
-#ifdef EIGEN_VECTORIZE_SSE2
+#ifdef XLA_HAS_SSE2
 template <>
 struct TransposeMicroKernel<uint8_t, /*bs=*/8> {
   static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
                     int64_t ldb) {
+    using T = uint8_t;
+    constexpr int bs = 8;
+    constexpr size_t element_size = sizeof(T);
     // To help understand each step, let's show the contents of our SIMD
     // vectors.
     // The numbers shown are in octal and represent the source position from the
@@ -123,8 +439,9 @@ struct TransposeMicroKernel<uint8_t, /*bs=*/8> {
     // [50, 51, 52, 53, 54, 55, 56, 57],
     // [60, 61, 62, 63, 64, 65, 66, 67],
     // [70, 71, 72, 73, 74, 75, 76, 77],
-    __m128i loads[8];
-    for (int i = 0; i < 8; ++i) {
+    __m128i loads[bs];
+    XLA_UNROLL
+    for (int i = 0; i < bs; ++i) {
       loads[i] = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(a + lda * i));
     }
 
@@ -137,38 +454,21 @@ struct TransposeMicroKernel<uint8_t, /*bs=*/8> {
     // [60, 70, 61, 71, 62, 72, 63, 73, 64, 74, 65, 75, 66, 76, 67, 77],
     // In effect, we are splitting each SIMD vector into two blocks of 8
     // elements, then interleaving the elements.
-    __m128i unpack_8[4];
-    for (int i = 0; i < 4; ++i) {
+    std::array<__m128i, bs / 2> last_transpose;
+    XLA_UNROLL
+    for (int i = 0; i < bs / 2; ++i) {
       // There is no need for _mm_unpackhi_epi8 as the high half of the two
       // vectors contains zeros.
-      unpack_8[i] = _mm_unpacklo_epi8(loads[i * 2], loads[i * 2 + 1]);
+      last_transpose[i] = _mm_unpacklo_epi8(loads[i * 2], loads[i * 2 + 1]);
     }
 
-    // Zip two elements at a time between adjacent rows.
-    //
-    // [00, 10, 20, 30, 01, 11, 21, 31, 02, 12, 22, 32, 03, 13, 23, 33],
-    // [04, 14, 24, 34, 05, 15, 25, 35, 06, 16, 26, 36, 07, 17, 27, 37],
-    // [40, 50, 60, 70, 41, 51, 61, 71, 42, 52, 62, 72, 43, 53, 63, 73],
-    // [44, 54, 64, 74, 45, 55, 65, 75, 46, 56, 66, 76, 47, 57, 67, 77],
-    __m128i unpack_16[4];
-    for (int i = 0; i < 4; i += 2) {
-      unpack_16[i + 0] = _mm_unpacklo_epi16(unpack_8[i], unpack_8[i + 1]);
-      unpack_16[i + 1] = _mm_unpackhi_epi16(unpack_8[i], unpack_8[i + 1]);
-    }
-
-    // Finish the transpose by moving around blocks of 32-bits.
-    //
     // [00, 10, 20, 30, 40, 50, 60, 70, 01, 11, 21, 31, 41, 51, 61, 71],
     // [02, 12, 22, 32, 42, 52, 62, 72, 03, 13, 23, 33, 43, 53, 63, 73],
     // [04, 14, 24, 34, 44, 54, 64, 74, 05, 15, 25, 35, 45, 55, 65, 75],
     // [06, 16, 26, 36, 46, 56, 66, 76, 07, 17, 27, 37, 47, 57, 67, 77],
-    __m128i unpack_32[4];
-    for (int i = 0; i < 4; i += 2) {
-      unpack_32[i + 0] =
-          _mm_unpacklo_epi32(unpack_16[i / 2], unpack_16[i / 2 + 2]);
-      unpack_32[i + 1] =
-          _mm_unpackhi_epi32(unpack_16[i / 2], unpack_16[i / 2 + 2]);
-    }
+    last_transpose =
+        UnpackSequence<element_size * 2, /*step_size=*/1, /*max_step_size=*/4>(
+            last_transpose);
 
     // We have two rows stored in our 128-bit SIMD vector but our block size
     // is 64-bit, unpack and do two stores.
@@ -181,11 +481,13 @@ struct TransposeMicroKernel<uint8_t, /*bs=*/8> {
     // [05, 15, 25, 35, 45, 55, 65, 75],
     // [06, 16, 26, 36, 46, 56, 66, 76],
     // [07, 17, 27, 37, 47, 57, 67, 77],
+    XLA_UNROLL
     for (int i = 0; i < 8; i += 2) {
       _mm_storel_epi64(reinterpret_cast<__m128i*>(b + ldb * (i + 0)),
-                       unpack_32[i / 2]);
-      _mm_storel_epi64(reinterpret_cast<__m128i*>(b + ldb * (i + 1)),
-                       _mm_unpackhi_epi64(unpack_32[i / 2], unpack_32[i / 2]));
+                       last_transpose[i / 2]);
+      _mm_storel_epi64(
+          reinterpret_cast<__m128i*>(b + ldb * (i + 1)),
+          _mm_unpackhi_epi64(last_transpose[i / 2], last_transpose[i / 2]));
     }
   }
 };
@@ -193,119 +495,37 @@ struct TransposeMicroKernel<uint8_t, /*bs=*/8> {
 
 // TODO(phawkins): Eigen doesn't have a SSE/AVX byte Packet16c type. Add one
 // and call it here rather than using AVX intrinsics.
-#ifdef EIGEN_VECTORIZE_SSE2
+#ifdef __AVX__
 template <>
 struct TransposeMicroKernel<uint8_t, /*bs=*/16> {
   static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
                     int64_t ldb) {
-    std::array<__m128i, 16> packet;
-    for (int i = 0; i < 16; ++i) {
-      packet[i] =
-          _mm_loadu_si128(reinterpret_cast<const __m128i*>(a + lda * i));
-    }
-
-    // If we number the elements in the input thus:
-    // kernel.packet[ 0] = {00, 01, 02, 03, 04, 05, 06, 07, 08, 09, 0a, 0b, 0c,
-    //                      0d, 0e, 0f}
-    // kernel.packet[ 1] = {10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 1a, 1b, 1c,
-    //                      1d, 1e, 1f}
-    // ...
-    // kernel.packet[15] = {f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, fa, fb, fc,
-    //                      fd, fe, ff},
-    //
-    // the desired output is:
-    // kernel.packet[ 0] = {00, 10, 20, 30, 40, 50, 60, 70, 80, 90, a0, b0, c0,
-    //                      d0, e0, f0}
-    // kernel.packet[ 1] = {01, 11, 21, 31, 41, 51, 61, 71, 81, 91, a1, b1, c1,
-    //                      d1, e1, f1}
-    // ...
-    // kernel.packet[15] = {0f, 1f, 2f, 3f, 4f, 5f, 6f, 7f, 8f, 9f, af, bf, cf,
-    //                      df, ef, ff},
-    // 00 10 01 11 02 12 03 13 04 14 05 15 06 16 07 17
-    __m128i t0 = _mm_unpacklo_epi8(packet[0], packet[1]);
-    // 08 18 09 19 0a 1a 0b 1b 0c 1c 0d 1d 0e 1e 0f 1f
-    __m128i t1 = _mm_unpackhi_epi8(packet[0], packet[1]);
-    // 20 30 21 31 22 32 ...                     27 37
-    __m128i t2 = _mm_unpacklo_epi8(packet[2], packet[3]);
-    // 28 38 29 39 2a 3a ...                     2f 3f
-    __m128i t3 = _mm_unpackhi_epi8(packet[2], packet[3]);
-    // 40 50 41 51 42 52                         47 57
-    __m128i t4 = _mm_unpacklo_epi8(packet[4], packet[5]);
-    // 48 58 49 59 4a 5a
-    __m128i t5 = _mm_unpackhi_epi8(packet[4], packet[5]);
-    __m128i t6 = _mm_unpacklo_epi8(packet[6], packet[7]);
-    __m128i t7 = _mm_unpackhi_epi8(packet[6], packet[7]);
-    __m128i t8 = _mm_unpacklo_epi8(packet[8], packet[9]);
-    __m128i t9 = _mm_unpackhi_epi8(packet[8], packet[9]);
-    __m128i ta = _mm_unpacklo_epi8(packet[10], packet[11]);
-    __m128i tb = _mm_unpackhi_epi8(packet[10], packet[11]);
-    __m128i tc = _mm_unpacklo_epi8(packet[12], packet[13]);
-    __m128i td = _mm_unpackhi_epi8(packet[12], packet[13]);
-    __m128i te = _mm_unpacklo_epi8(packet[14], packet[15]);
-    __m128i tf = _mm_unpackhi_epi8(packet[14], packet[15]);
-
-    // 00 10 20 30 01 11 21 31 02 12 22 32 03 13 23 33
-    __m128i s0 = _mm_unpacklo_epi16(t0, t2);
-    __m128i s1 = _mm_unpackhi_epi16(t0, t2);  // 04 14 24 34
-    __m128i s2 = _mm_unpacklo_epi16(t1, t3);  // 08 18 28 38 ...
-    __m128i s3 = _mm_unpackhi_epi16(t1, t3);  // 0c 1c 2c 3c ...
-    // 40 50 60 70 41 51 61 71 42 52 62 72 43 53 63 73
-    __m128i s4 = _mm_unpacklo_epi16(t4, t6);
-    __m128i s5 = _mm_unpackhi_epi16(t4, t6);  // 44 54 64 74 ...
-    __m128i s6 = _mm_unpacklo_epi16(t5, t7);
-    __m128i s7 = _mm_unpackhi_epi16(t5, t7);
-    __m128i s8 = _mm_unpacklo_epi16(t8, ta);
-    __m128i s9 = _mm_unpackhi_epi16(t8, ta);
-    __m128i sa = _mm_unpacklo_epi16(t9, tb);
-    __m128i sb = _mm_unpackhi_epi16(t9, tb);
-    __m128i sc = _mm_unpacklo_epi16(tc, te);
-    __m128i sd = _mm_unpackhi_epi16(tc, te);
-    __m128i se = _mm_unpacklo_epi16(td, tf);
-    __m128i sf = _mm_unpackhi_epi16(td, tf);
-
-    // 00 10 20 30 40 50 60 70 01 11 21 31 41 51 61 71
-    __m128i u0 = _mm_unpacklo_epi32(s0, s4);
-    // 02 12 22 32 42 52 62 72 03 13 23 33 43 53 63 73
-    __m128i u1 = _mm_unpackhi_epi32(s0, s4);
-    __m128i u2 = _mm_unpacklo_epi32(s1, s5);
-    __m128i u3 = _mm_unpackhi_epi32(s1, s5);
-    __m128i u4 = _mm_unpacklo_epi32(s2, s6);
-    __m128i u5 = _mm_unpackhi_epi32(s2, s6);
-    __m128i u6 = _mm_unpacklo_epi32(s3, s7);
-    __m128i u7 = _mm_unpackhi_epi32(s3, s7);
-    __m128i u8 = _mm_unpacklo_epi32(s8, sc);
-    __m128i u9 = _mm_unpackhi_epi32(s8, sc);
-    __m128i ua = _mm_unpacklo_epi32(s9, sd);
-    __m128i ub = _mm_unpackhi_epi32(s9, sd);
-    __m128i uc = _mm_unpacklo_epi32(sa, se);
-    __m128i ud = _mm_unpackhi_epi32(sa, se);
-    __m128i ue = _mm_unpacklo_epi32(sb, sf);
-    __m128i uf = _mm_unpackhi_epi32(sb, sf);
-
-    packet[0] = _mm_unpacklo_epi64(u0, u8);
-    packet[1] = _mm_unpackhi_epi64(u0, u8);
-    packet[2] = _mm_unpacklo_epi64(u1, u9);
-    packet[3] = _mm_unpackhi_epi64(u1, u9);
-    packet[4] = _mm_unpacklo_epi64(u2, ua);
-    packet[5] = _mm_unpackhi_epi64(u2, ua);
-    packet[6] = _mm_unpacklo_epi64(u3, ub);
-    packet[7] = _mm_unpackhi_epi64(u3, ub);
-    packet[8] = _mm_unpacklo_epi64(u4, uc);
-    packet[9] = _mm_unpackhi_epi64(u4, uc);
-    packet[10] = _mm_unpacklo_epi64(u5, ud);
-    packet[11] = _mm_unpackhi_epi64(u5, ud);
-    packet[12] = _mm_unpacklo_epi64(u6, ue);
-    packet[13] = _mm_unpackhi_epi64(u6, ue);
-    packet[14] = _mm_unpacklo_epi64(u7, uf);
-    packet[15] = _mm_unpackhi_epi64(u7, uf);
-    for (int i = 0; i < 16; ++i) {
-      _mm_storeu_si128(reinterpret_cast<__m128i*>(b + ldb * i), packet[i]);
-    }
+    AvxRectangularTransposeMicroKernelImpl<uint8_t, 16>::Apply(a, lda, b, ldb);
+  }
+};
+#elif defined(XLA_HAS_SSE2)
+template <>
+struct TransposeMicroKernel<uint8_t, /*bs=*/16> {
+  static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
+                    int64_t ldb) {
+    Sse2SquareTransposeMicroKernelImpl<uint8_t, /*bs=*/16>::Apply(a, lda, b,
+                                                                  ldb);
   }
 };
 #endif
 
-#ifdef EIGEN_VECTORIZE_SSE2
+#ifdef __AVX__
+template <>
+struct TransposeMicroKernel<uint8_t, /*bs=*/32> {
+  static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
+                    int64_t ldb) {
+    AvxSquareTransposeMicroKernelImpl<uint8_t, /*bs=*/32>::Apply(a, lda, b,
+                                                                 ldb);
+  }
+};
+#endif
+
+#ifdef XLA_HAS_SSE2
 template <>
 struct TransposeMicroKernel<uint16_t, /*bs=*/4> {
   static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
@@ -318,7 +538,7 @@ struct TransposeMicroKernel<uint16_t, /*bs=*/4> {
     // [ 8,  9, 10, 11],
     // [12, 13, 14, 15],
     __m128i loads[4];
-    for (int i = 0; i < 4; ++i) {
+    XLA_UNROLL for (int i = 0; i < 4; ++i) {
       loads[i] = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(a + lda * i));
     }
 
@@ -349,115 +569,90 @@ struct TransposeMicroKernel<uint16_t, /*bs=*/4> {
 };
 #endif
 
-#ifdef EIGEN_VECTORIZE_AVX
+#if defined(__AVX__)
 template <>
 struct TransposeMicroKernel<uint16_t, /*bs=*/8> {
   static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
                     int64_t ldb) {
-    using Eigen::internal::Packet8h;
-    using Eigen::internal::PacketBlock;
-    constexpr int bs = 8;
-    PacketBlock<Packet8h, bs> block;
-    for (int i = 0; i < bs; ++i) {
-      block.packet[i] = Eigen::internal::ploadu<Packet8h>(
-          reinterpret_cast<const Eigen::half*>(a + lda * i));
-    }
-    Eigen::internal::ptranspose(block);
-    for (int i = 0; i < bs; ++i) {
-      Eigen::internal::pstoreu<Eigen::half>(
-          reinterpret_cast<Eigen::half*>(b + ldb * i), block.packet[i]);
-    }
+    AvxRectangularTransposeMicroKernelImpl<uint16_t, 8>::Apply(a, lda, b, ldb);
+  }
+};
+#elif defined(XLA_HAS_SSE2)
+template <>
+struct TransposeMicroKernel<uint16_t, /*bs=*/8> {
+  static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
+                    int64_t ldb) {
+    Sse2SquareTransposeMicroKernelImpl<uint16_t, /*bs=*/8>::Apply(a, lda, b,
+                                                                  ldb);
   }
 };
 #endif
 
-#ifdef EIGEN_VECTORIZE_SSE2
+#ifdef __AVX__
+template <>
+struct TransposeMicroKernel<uint16_t, /*bs=*/16> {
+  static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
+                    int64_t ldb) {
+    AvxSquareTransposeMicroKernelImpl<uint16_t, /*bs=*/16>::Apply(a, lda, b,
+                                                                  ldb);
+  }
+};
+#endif
+
+#ifdef __AVX__
 template <>
 struct TransposeMicroKernel<uint32_t, /*bs=*/4> {
   static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
                     int64_t ldb) {
-    using Eigen::internal::Packet4f;
-    using Eigen::internal::PacketBlock;
-    constexpr int bs = 4;
-    PacketBlock<Packet4f, bs> block;
-    for (int i = 0; i < bs; ++i) {
-      block.packet[i] = Eigen::internal::ploadu<Packet4f>(
-          reinterpret_cast<const float*>(a + lda * i));
-    }
-    Eigen::internal::ptranspose(block);
-    for (int i = 0; i < bs; ++i) {
-      Eigen::internal::pstoreu<float>(reinterpret_cast<float*>(b + ldb * i),
-                                      block.packet[i]);
-    }
+    AvxRectangularTransposeMicroKernelImpl<uint32_t, 4>::Apply(a, lda, b, ldb);
+  }
+};
+#elif defined(XLA_HAS_SSE2)
+template <>
+struct TransposeMicroKernel<uint32_t, /*bs=*/4> {
+  static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
+                    int64_t ldb) {
+    Sse2SquareTransposeMicroKernelImpl<uint32_t, /*bs=*/4>::Apply(a, lda, b,
+                                                                  ldb);
   }
 };
 #endif
 
-#ifdef EIGEN_VECTORIZE_AVX
+#ifdef __AVX__
 template <>
 struct TransposeMicroKernel<uint32_t, /*bs=*/8> {
   static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
                     int64_t ldb) {
-    using Eigen::internal::Packet8f;
-    using Eigen::internal::PacketBlock;
-    constexpr int bs = 8;
-    PacketBlock<Packet8f, bs> block;
-    for (int i = 0; i < bs; ++i) {
-      block.packet[i] = Eigen::internal::ploadu<Packet8f>(
-          reinterpret_cast<const float*>(a + lda * i));
-    }
-    Eigen::internal::ptranspose(block);
-    for (int i = 0; i < bs; ++i) {
-      Eigen::internal::pstoreu<float>(reinterpret_cast<float*>(b + ldb * i),
-                                      block.packet[i]);
-    }
+    AvxSquareTransposeMicroKernelImpl<uint32_t, /*bs=*/8>::Apply(a, lda, b,
+                                                                 ldb);
   }
 };
 #endif
 
-#ifdef EIGEN_VECTORIZE_SSE2
+#ifdef XLA_HAS_SSE2
 template <>
 struct TransposeMicroKernel<uint64_t, /*bs=*/2> {
   static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
                     int64_t ldb) {
-    using Eigen::internal::Packet2d;
-    using Eigen::internal::PacketBlock;
-    constexpr int bs = 2;
-    PacketBlock<Packet2d, bs> block;
-    for (int i = 0; i < bs; ++i) {
-      block.packet[i] = Eigen::internal::ploadu<Packet2d>(
-          reinterpret_cast<const double*>(a + lda * i));
-    }
-    Eigen::internal::ptranspose(block);
-    for (int i = 0; i < bs; ++i) {
-      Eigen::internal::pstoreu<double>(reinterpret_cast<double*>(b + ldb * i),
-                                       block.packet[i]);
-    }
+    Sse2SquareTransposeMicroKernelImpl<uint64_t, /*bs=*/2>::Apply(a, lda, b,
+                                                                  ldb);
   }
 };
 #endif
 
-#ifdef EIGEN_VECTORIZE_AVX
+#ifdef __AVX__
 template <>
 struct TransposeMicroKernel<uint64_t, /*bs=*/4> {
   static void Apply(const char* __restrict a, int64_t lda, char* __restrict b,
                     int64_t ldb) {
-    using Eigen::internal::Packet4d;
-    using Eigen::internal::PacketBlock;
-    constexpr int bs = 4;
-    PacketBlock<Packet4d, bs> block;
-    for (int i = 0; i < bs; ++i) {
-      block.packet[i] = Eigen::internal::ploadu<Packet4d>(
-          reinterpret_cast<const double*>(a + lda * i));
-    }
-    Eigen::internal::ptranspose(block);
-    for (int i = 0; i < bs; ++i) {
-      Eigen::internal::pstoreu<double>(reinterpret_cast<double*>(b + ldb * i),
-                                       block.packet[i]);
-    }
+    AvxSquareTransposeMicroKernelImpl<uint64_t, /*bs=*/4>::Apply(a, lda, b,
+                                                                 ldb);
   }
 };
-#endif  // EIGEN_VECTORIZE_AVX
+#endif  // __AVX__
+
+#pragma pop_macro("XLA_ALWAYS_INLINE")
+#pragma pop_macro("XLA_UNROLL")
 
 }  // namespace xla
 
