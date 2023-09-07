@@ -16,13 +16,27 @@ limitations under the License.
 #ifndef XLA_PJRT_METRICS_H_
 #define XLA_PJRT_METRICS_H_
 
+#include "absl/base/attributes.h"
+#include "absl/strings/string_view.h"
 #include "tsl/lib/monitoring/counter.h"
 
 // Simplified version of tensorflow/core/framework/metrics.h for JAX.
 
 namespace xla {
+namespace metrics {
+
+ABSL_CONST_INIT extern const absl::string_view
+    kPjrtCompilerCompileComputationMetricName;
+ABSL_CONST_INIT extern const absl::string_view
+    kPjrtCompilerCompileModuleMetricName;
 
 void ReportExecutableEnqueueTime(uint64_t running_time_usecs);
-}
+
+void RecordPjrtCompilerCompileComputationStatus(bool is_compiling);
+
+void RecordPjrtCompilerCompileModuleStatus(bool is_compiling);
+
+}  // namespace metrics
+}  // namespace xla
 
 #endif  // XLA_PJRT_METRICS_H_
