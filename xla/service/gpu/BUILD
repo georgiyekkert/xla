@@ -2919,6 +2919,8 @@ xla_cc_test(
         ":all_reduce_blueconnect",
         "//xla/hlo/ir:hlo",
         "//xla/hlo/utils:hlo_matchers",
+        "//xla/service:pattern_matcher",
+        "//xla/service:pattern_matcher_gmock",
         "//xla/tests:hlo_test_base",
         "//xla/tests:test_utils",
         "@tsl//tsl/platform:status_matchers",
